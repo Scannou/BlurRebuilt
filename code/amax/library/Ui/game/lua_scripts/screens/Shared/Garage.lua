@@ -640,9 +640,13 @@ function PostInit()
 		end
 	end
 	
+	local set_lobby_default = false
+
 	if found == false then
 		if GUI.is_multiplayer_lobby == true then
-			Multiplayer.SetGarageCarByID( Garage_GetSelectedCar().id )	-- need a default - background car is different
+			-- [Blur2PC] GUI.current.class is nil until Garage_CheckForClassChange runs, so Garage_GetSelectedCar
+			-- errored here and left the screen half-built with input blocked; store the default after that call
+			set_lobby_default = true
 		else
 			if GUI.is_multiplayer == false then
 				-- find the first car we've got unlocked - TODO - do we need something other than this?
@@ -748,6 +752,11 @@ function PostInit()
 	UIButtons.TimeLineActive( "Hide_Carousel", true )
 	
 	local car = Garage_GetSelectedCar()
+
+	if set_lobby_default == true then
+		Multiplayer.SetGarageCarByID( car.id )	-- need a default - background car is different
+	end
+
 	GUI.viewing_id = car.id
 	GUI.wait_load_timer = GUI.wait_load_time
 	GUI.wait_respray_timer = GUI.wait_load_time
