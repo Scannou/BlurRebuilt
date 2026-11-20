@@ -363,6 +363,9 @@ function Init()
 			v.tease = false
 		end
 
+		-- DIAG: dump every garage car before the legend filter
+		Debug.Print( "GARAGEDIAG key=" .. tostring( i ) .. " id=" .. tostring( v.id ) .. " name=" .. tostring( GUI.garage.car_info[ i ].name ) .. " class=" .. tostring( GUI.garage.car_info[ i ].class ) .. " own_it=" .. tostring( v.own_it ) .. " rank=" .. tostring( GUI.garage.rank[ i ] ) .. " rank_by_id=" .. tostring( GUI.garage.rank[ v.id ] ) .. " unlock_at=" .. tostring( v.unlock_at ) .. " has_parent=" .. tostring( v.has_parent ) .. " allowed=" .. tostring( v.allowed ) )
+
 		-- hide legend cars we have not unlocked
 		if GUI.is_multiplayer == true then
 			if GUI.garage.cars[ i ].own_it == false and GUI.garage.rank[ GUI.garage.cars[ i ].id ] == 51 then
