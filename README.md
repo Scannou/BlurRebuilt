@@ -80,6 +80,8 @@ These Windows environment variables are available if you want to adjust things:
 | `BLUR_DX11_HDR_PAPER_WHITE_NITS=200` | Set the brightness of menus and everyday surfaces |
 | `BLUR2PC_FRAMELIMIT=120` | Cap the frame rate |
 
+Your name in LAN and offline games is your Windows user name (your Linux user name under Proton). To use a different name, put a `username.txt` file next to `BlurRebuilt.exe` with the name on its first line. Names can use up to 15 plain ASCII characters.
+
 ## Intro videos
 
 The intro videos don't play. The game goes straight to the title screen. That's expected.

@@ -510,20 +510,62 @@ static S32 GuideActive( lua_State* pState )
 	return 1;
 }
 
+#if defined ( PLATFORM_PC )
+// [Blur2PC] Copies a candidate player name as printable ASCII only (the name is widened with %S),
+// without leading/trailing spaces and at most SYSTEM_PROFILE_NAME_LENGTH-2 chars to satisfy
+// SetDemonwareAuthenticatedPlayerData's assert. Stops at a line break; false leaves name untouched.
+static bool SetCleanUserName(char (&name)[SYSTEM_PROFILE_NAME_LENGTH], const char* pIn)
+{
+	char clean[SYSTEM_PROFILE_NAME_LENGTH] = { 0 };
+	size_t count = 0;
+	for (; *pIn != 0 && *pIn != '\r' && *pIn != '\n' && count < SYSTEM_PROFILE_NAME_LENGTH - 2; ++pIn)
+	{
+		if (*pIn >= 0x20 && *pIn <= 0x7E && (count > 0 || *pIn != ' '))
+			clean[count++] = *pIn;
+	}
+	while (count > 0 && clean[count - 1] == ' ')
+		clean[--count] = 0;
+
+	if (count == 0)
+		return false;
+	strcpy_s(name, sizeof(name), clean);
+	return true;
+}
+#endif
+
 // pc only - need to inform profile manager what we wish our profile to be named.
 // this just defaults the name until either a save game is loaded or we get the username/password
 // from the user so we can authenticate against demonware
 static S32 SetDefaultUserName(lua_State* pState)
 {
 #if defined ( PLATFORM_PC )
-	// [Blur2PC] Offline/LAN players were all named "Player"; use the Windows user name instead, as
-	// retail is reported to (not verified against the retail exe). Printable ASCII only (the name is
-	// widened with %S) and at most SYSTEM_PROFILE_NAME_LENGTH-2 chars to satisfy
-	// SetDemonwareAuthenticatedPlayerData's assert; "Player" remains the fallback.
+	// [Blur2PC] Offline/LAN players were all named "Player". Use the first line of username.txt beside
+	// the exe, else the Windows user name (as retail is reported to; not verified against the retail
+	// exe), else "Player".
 	char name[SYSTEM_PROFILE_NAME_LENGTH] = "Player";
+	bool named = false;
+
+	char path[MAX_PATH] = { 0 };
+	const DWORD pathLength = GetModuleFileNameA(NULL, path, MAX_PATH);
+	char* slash = (pathLength > 0 && pathLength < MAX_PATH) ? strrchr(path, '\\') : NULL;
+	FILE* pFile = NULL;
+	if (NULL != slash && strcpy_s(slash + 1, MAX_PATH - (slash + 1 - path), "username.txt") == 0 &&
+		fopen_s(&pFile, path, "rb") == 0 && NULL != pFile)
+	{
+		char line[256] = { 0 };
+		if (NULL != fgets(line, sizeof(line), pFile))
+		{
+			const char* pLine = line;
+			if ((U8)pLine[0] == 0xEF && (U8)pLine[1] == 0xBB && (U8)pLine[2] == 0xBF)
+				pLine += 3;	// UTF-8 BOM written by Notepad
+			named = SetCleanUserName(name, pLine);
+		}
+		fclose(pFile);
+	}
+
 	char userName[256 + 1] = { 0 };
 	DWORD userNameLength = sizeof(userName);
-	if (GetUserNameA(userName, &userNameLength))
+	if (!named && GetUserNameA(userName, &userNameLength))
 	{
 		// Proton names every Windows user "steamuser"; Wine passes the Linux environment through,
 		// so prefer the Linux account name from USER when it is set
@@ -532,16 +574,7 @@ static S32 SetDefaultUserName(lua_State* pState)
 		if (_stricmp(userName, "steamuser") == 0 && unixUserLength > 0 && unixUserLength < sizeof(unixUser))
 			strcpy_s(userName, sizeof(userName), unixUser);
 
-		char custom[SYSTEM_PROFILE_NAME_LENGTH] = { 0 };
-		size_t count = 0;
-		for (const char* pIn = userName; *pIn != 0 && count < SYSTEM_PROFILE_NAME_LENGTH - 2; ++pIn)
-		{
-			if (*pIn >= 0x20 && *pIn <= 0x7E)
-				custom[count++] = *pIn;
-		}
-
-		if (count > 0)
-			strcpy_s(name, sizeof(name), custom);
+		named = SetCleanUserName(name, userName);
 	}
 
 	// all demonware usernames are in chars..
