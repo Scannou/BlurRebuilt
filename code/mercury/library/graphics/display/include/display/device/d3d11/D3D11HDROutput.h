@@ -64,6 +64,28 @@ class C_HDROutput
         }
         return 80; // documented nominal SDR white when the OS query is unavailable
     }
+    static bool FindOutput(HMONITOR monitor, DXGI_OUTPUT_DESC1& desc)
+    {
+        // Use the actual window's monitor, including displays on a second GPU.
+        Ptr<IDXGIFactory1> factory;
+        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return false;
+        for (UINT a = 0; ; ++a)
+        {
+            Ptr<IDXGIAdapter1> adapter;
+            if (factory->EnumAdapters1(a, &adapter) == DXGI_ERROR_NOT_FOUND || !adapter) return false;
+            for (UINT o = 0; ; ++o)
+            {
+                Ptr<IDXGIOutput> output; Ptr<IDXGIOutput6> advanced;
+                if (adapter->EnumOutputs(o, &output) == DXGI_ERROR_NOT_FOUND || !output) break;
+                if (SUCCEEDED(output.As(&advanced)) && SUCCEEDED(advanced->GetDesc1(&desc)) && desc.Monitor == monitor) return true;
+            }
+        }
+    }
+    static bool RunningUnderWine()
+    {
+        const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        return ntdll && GetProcAddress(ntdll, "wine_get_version");
+    }
 public:
     explicit C_HDROutput(HWND window) : m_Float(true), m_Active(false), m_Window(window), m_NextCheck(0), m_Monitor(nullptr)
     {
@@ -79,6 +101,15 @@ public:
         }
         char mode[16] = {}; GetEnvironmentVariableA("BLUR_DX11_HDR", mode, sizeof(mode));
         m_Float = _stricmp(mode, "off") != 0 && strcmp(mode, "0") != 0;
+        // [Blur2PC][HDR] Proton/DXVK showed the scRGB swap chain far too dark on SDR displays (reported,
+        // cause not confirmed). Under Wine, without an explicit BLUR_DX11_HDR, only use the float swap
+        // chain when the display already reports HDR; otherwise present the 8-bit SDR chain.
+        if (m_Float && !mode[0] && RunningUnderWine())
+        {
+            DXGI_OUTPUT_DESC1 desc = {};
+            m_Float = FindOutput(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), desc) && desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+            if (m_Log) { fprintf(m_Log, "Wine detected: float=%u colourSpace=%u\n", m_Float, desc.ColorSpace); fflush(m_Log); }
+        }
         m_Test = Setting("BLUR_DX11_HDR_TEST") == 1;
         m_PeakOverride = Setting("BLUR_DX11_HDR_PEAK_NITS");
         m_WhiteOverride = Setting("BLUR_DX11_HDR_PAPER_WHITE_NITS");
@@ -103,23 +134,8 @@ public:
         const HMONITOR monitor = MonitorFromWindow(m_Window, MONITOR_DEFAULTTONEAREST);
         if (!force && now < m_NextCheck && monitor == m_Monitor) return;
         m_NextCheck = now + 1000; m_Monitor = monitor;
-        DXGI_OUTPUT_DESC1 desc = {}; bool found = false;
-        // Use the actual window's monitor, including displays on a second GPU.
-        Ptr<IDXGIFactory1> factory;
-        if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-            for (UINT a = 0; !found; ++a)
-            {
-                Ptr<IDXGIAdapter1> adapter;
-                if (factory->EnumAdapters1(a, &adapter) == DXGI_ERROR_NOT_FOUND) break;
-                if (!adapter) break;
-                for (UINT o = 0; !found; ++o)
-                {
-                    Ptr<IDXGIOutput> output; Ptr<IDXGIOutput6> advanced;
-                    if (adapter->EnumOutputs(o, &output) == DXGI_ERROR_NOT_FOUND) break;
-                    if (!output) break;
-                    if (SUCCEEDED(output.As(&advanced)) && SUCCEEDED(advanced->GetDesc1(&desc)) && desc.Monitor == monitor) found = true;
-                }
-            }
+        DXGI_OUTPUT_DESC1 desc = {};
+        const bool found = FindOutput(monitor, desc);
         const bool displayHDR = found && desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
         const float white = m_LiveWhite > 0 ? m_LiveWhite : m_WhiteOverride > 0 ? m_WhiteOverride : displayHDR ? SDRWhite(desc) : 80;
         const float peak = m_LivePeak > 0 ? m_LivePeak : m_PeakOverride > 0 ? m_PeakOverride : found ? desc.MaxLuminance : 0;
