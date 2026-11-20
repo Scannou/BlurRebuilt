@@ -87,6 +87,10 @@ namespace NetPlay
 						if(strcmp(ipStr->IpAddress.String, "0.0.0.0") != 0)
 						{
 							m_NetCableConnected = true;
+							// [Blur2PC] Stopgap (unverified against retail): nothing on PC ever set
+							// m_ValidLocalAddress, so NetworkConnectionActive() blocked LAN entry.
+							// Mirrors Core_ps3.cpp, which sets both flags once an IP is obtained.
+							m_ValidLocalAddress = true;
 							//params.m_localAddresses.pushBack(bdInetAddr(ipStr->IpAddress.String));
 						}
 						else
