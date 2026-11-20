@@ -516,8 +516,29 @@ static S32 GuideActive( lua_State* pState )
 static S32 SetDefaultUserName(lua_State* pState)
 {
 #if defined ( PLATFORM_PC )
+	// [Blur2PC] Offline/LAN players were all named "Player"; use the Windows user name instead, as
+	// retail is reported to (not verified against the retail exe). Printable ASCII only (the name is
+	// widened with %S) and at most SYSTEM_PROFILE_NAME_LENGTH-2 chars to satisfy
+	// SetDemonwareAuthenticatedPlayerData's assert; "Player" remains the fallback.
+	char name[SYSTEM_PROFILE_NAME_LENGTH] = "Player";
+	char userName[256 + 1] = { 0 };
+	DWORD userNameLength = sizeof(userName);
+	if (GetUserNameA(userName, &userNameLength))
+	{
+		char custom[SYSTEM_PROFILE_NAME_LENGTH] = { 0 };
+		size_t count = 0;
+		for (const char* pIn = userName; *pIn != 0 && count < SYSTEM_PROFILE_NAME_LENGTH - 2; ++pIn)
+		{
+			if (*pIn >= 0x20 && *pIn <= 0x7E)
+				custom[count++] = *pIn;
+		}
+
+		if (count > 0)
+			strcpy_s(name, sizeof(name), custom);
+	}
+
 	// all demonware usernames are in chars..
-	SysProfile::C_Manager::Instance().SetDemonwareAuthenticatedPlayerData("Player");
+	SysProfile::C_Manager::Instance().SetDemonwareAuthenticatedPlayerData(name);
 #endif
 	return 0;
 }
