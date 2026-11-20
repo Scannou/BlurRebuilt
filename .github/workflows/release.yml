@@ -152,7 +152,7 @@ jobs:
           Write-Host "BLUR_BUILD_SHADERS=$env:BLUR_BUILD_SHADERS"
           & $env:BLUR_CMAKE -S . -B _work/build/vs -G $env:BLUR_GENERATOR -A x64 "-DBLUR_BUILD_SHADERS=$env:BLUR_BUILD_SHADERS"
           if ($LASTEXITCODE -ne 0) { throw "configure exited $LASTEXITCODE" }
-          & $env:BLUR_CMAKE --build _work/build/vs --config MinSizeRel --target Amax -- -m '-v:m' -nologo *> _work/build/amax.log
+          & $env:BLUR_CMAKE --build _work/build/vs --config Release --target Amax -- -m '-v:m' -nologo *> _work/build/amax.log
           $code = $LASTEXITCODE
           python tools/jam2cmake/errsum.py _work/build/amax.log
           if ($code -ne 0) { Get-Content _work/build/amax.log -Tail 60; throw "build exited $code" }
@@ -163,9 +163,15 @@ jobs:
           $stage = '_work/package'
           $effects = '_work/build/gen/fx11/effects'
           New-Item -ItemType Directory -Force "$stage/fx11" | Out-Null
-          Copy-Item _work/build/vs/MinSizeRel/Amax.exe "$stage/BlurRebuilt.exe"
-          Copy-Item _work/build/vs/amax_client_host/MinSizeRel/AmaxClientHost.exe $stage
+          Copy-Item _work/build/vs/Release/Amax.exe "$stage/BlurRebuilt.exe"
+          Copy-Item _work/build/vs/Release/Amax.pdb "$stage/BlurRebuilt.pdb" -ErrorAction SilentlyContinue
+          Copy-Item _work/build/vs/amax_client_host/Release/AmaxClientHost.exe $stage
           Copy-Item README.md $stage
+          # Diagnostic Speed build: log everything to amax.log in the working directory.
+          Set-Content "$stage/logcfg.xml" -Encoding ascii -Value @(
+            '<root level="Debug"/>',
+            '<subscriber type="logfile" file="amax.log" attach="root" format="(%e secs) %c\n"/>'
+          )
           $root = (Resolve-Path $effects).Path
           Get-ChildItem $effects -Recurse -File | Where-Object { $_.Name -in 'effects.index', 'effects.samplers' -or $_.Extension -eq '.fxo' } | ForEach-Object {
             $target = Join-Path "$stage/fx11" $_.FullName.Substring($root.Length + 1)
