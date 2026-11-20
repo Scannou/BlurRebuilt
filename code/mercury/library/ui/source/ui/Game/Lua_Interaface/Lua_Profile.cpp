@@ -525,6 +525,13 @@ static S32 SetDefaultUserName(lua_State* pState)
 	DWORD userNameLength = sizeof(userName);
 	if (GetUserNameA(userName, &userNameLength))
 	{
+		// Proton names every Windows user "steamuser"; Wine passes the Linux environment through,
+		// so prefer the Linux account name from USER when it is set
+		char unixUser[256 + 1] = { 0 };
+		const DWORD unixUserLength = GetEnvironmentVariableA("USER", unixUser, sizeof(unixUser));
+		if (_stricmp(userName, "steamuser") == 0 && unixUserLength > 0 && unixUserLength < sizeof(unixUser))
+			strcpy_s(userName, sizeof(userName), unixUser);
+
 		char custom[SYSTEM_PROFILE_NAME_LENGTH] = { 0 };
 		size_t count = 0;
 		for (const char* pIn = userName; *pIn != 0 && count < SYSTEM_PROFILE_NAME_LENGTH - 2; ++pIn)
