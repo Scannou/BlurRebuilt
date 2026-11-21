@@ -666,8 +666,14 @@ namespace Game
 								//	We must be in system link, so we just some default values - fair that way.
 								vehicleData.m_PickupSlots = 3;
 								vehicleData.m_ShieldSlots = 3;
+
+							#if defined ( PLATFORM_PC )
+								// [Blur2PC] remember the car chosen for this class (stored by SetGarageCarByID) for later LAN lobbies
+								if ( pGameProfile )
+									pGameProfile->GetMultiplayerProfile()->SaveLanSelection();
+							#endif
 							}
-									
+
 							// overwrite players stored vehicle with newly selected one.
 							p->m_RaceData.m_VehicleData = vehicleData;
 
@@ -784,6 +790,12 @@ namespace Game
 					// overwrite players loadout with newly selected one.
 					p->m_RaceData.m_LoadOut.Flush();
 					pProfile->GetLoadouts(isRanked).BuildNetworkLoadOutData(p->m_RaceData.m_LoadOut, isRanked);
+
+				#if defined ( PLATFORM_PC )
+					// [Blur2PC] remember the unranked loadouts for later LAN lobbies
+					if ( !isRanked && !pLayer->GetGameModePtr()->IsOnline() )
+						pProfile->SaveLanSelection();
+				#endif
 
 					// actual send is done from within GameModeNetwork.cpp
 					for (U8 z=0; z<mgr.TotalSize(); z++)

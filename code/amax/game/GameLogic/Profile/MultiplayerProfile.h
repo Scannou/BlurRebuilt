@@ -108,6 +108,12 @@ typedef Btl::Map< XtId, ResprayData >	ResprayMap;
 		U32 GetLastCarUsed() const;
 		U32 GetLastCarUsed( const AmaxCarClass carClass ) const;
 
+#if defined ( PLATFORM_PC )
+		// [Blur2PC] System link car and loadout memory, kept beside the profile save; see MultiplayerProfile.cpp.
+		void SaveLanSelection() const;
+		void LoadLanSelection();
+#endif
+
 		bool									IsBlurDeveloper();
 		bool									HasBeatenBizarre();
 

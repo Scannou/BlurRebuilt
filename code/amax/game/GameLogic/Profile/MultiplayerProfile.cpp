@@ -3,6 +3,9 @@
 #include <Ui/Game/Multiplayer/MultiplayerDefines.h>	// [Blur2PC]
 #include <Game/Game.h>	// [Blur2PC]
 #include <GameLogic/Profile/GameProfileManager.h>	// [Blur2PC]
+#if defined ( PLATFORM_PC )
+#include <shlobj.h>	// [Blur2PC] SHGetFolderPathA (LAN selection file)
+#endif
 
 #include "GameLogic\Profile\MultiplayerProfile.h"
 #include <Game\Achievements\AchievementSystem.h>
@@ -868,6 +871,112 @@ U32 C_MultiplayerProfile::GetLastCarUsed( const AmaxCarClass carClass ) const
 	else
 		return mLastCarUsedClass[ carClass ];
 }
+
+#if defined ( PLATFORM_PC )
+// [Blur2PC] Not retail behaviour: the car chosen for each class and the unranked loadouts used by system link are
+// only held in memory (the profile save keeps neither), so they were lost on leaving a LAN lobby. They are kept in
+// BlurRebuiltLan.dat in the profile save folder (%APPDATA%\Bizarre Creations\Blur\, or BLUR2PC_SAVE_ROOT as in
+// SaveSystem_pc.cpp), which retail ignores. A header with size and checksum rejects foreign or damaged files.
+static const U32 kLanSelectionMagic		= 0x4E414C42;	// "BLAN"
+static const U32 kLanSelectionVersion	= 1;
+static const U32 kLanSelectionMaxSize	= 64 * 1024;
+
+static void GetLanSelectionPath( char (&path)[ MAX_PATH ] )
+{
+	if ( const char* pOverride = getenv( "BLUR2PC_SAVE_ROOT" ) )
+	{
+		sprintf_s( path, "%s\\BlurRebuiltLan.dat", pOverride );
+	}
+	else
+	{
+		char appData[ MAX_PATH ] = { 0 };
+		SHGetFolderPathA( NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, appData );
+		sprintf_s( path, "%s\\Bizarre Creations\\Blur\\BlurRebuiltLan.dat", appData );
+	}
+}
+
+static U32 LanSelectionChecksum( const U8* pData, const U32 size )
+{
+	U32 hash = 2166136261u;	// FNV-1a
+	for ( U32 i = 0; i < size; i++ )
+		hash = ( hash ^ pData[ i ] ) * 16777619u;
+	return hash;
+}
+
+void C_MultiplayerProfile::SaveLanSelection() const
+{
+	Sys::C_MemoryStream stream( 1024 );
+	Sys::BinarySerialiserAutoEndian out( stream );
+
+	out << (U32)mLastCarUsedClass.Size();
+	for ( S32 i = 0; i < mLastCarUsedClass.Size(); i++ )
+		out << mLastCarUsedClass[ i ];
+
+	mUnrankedLoadouts.Serialise( out );
+
+	const U32 size = (U32)stream.GetBufferSize();
+	const U32 header[ 4 ] = { kLanSelectionMagic, kLanSelectionVersion, size, LanSelectionChecksum( stream.GetBufferPtr(), size ) };
+
+	char path[ MAX_PATH ];
+	GetLanSelectionPath( path );
+
+	FILE* pFile = NULL;
+	if ( fopen_s( &pFile, path, "wb" ) == 0 && pFile )
+	{
+		fwrite( header, sizeof( header ), 1, pFile );
+		fwrite( stream.GetBufferPtr(), size, 1, pFile );
+		fclose( pFile );
+	}
+}
+
+void C_MultiplayerProfile::LoadLanSelection()
+{
+	char path[ MAX_PATH ];
+	GetLanSelectionPath( path );
+
+	FILE* pFile = NULL;
+	if ( fopen_s( &pFile, path, "rb" ) != 0 || !pFile )
+		return;
+
+	U32 header[ 4 ] = { 0 };
+	U8* pData = NULL;
+	bool ok = ( fread( header, sizeof( header ), 1, pFile ) == 1 ) && ( header[ 0 ] == kLanSelectionMagic ) && ( header[ 1 ] == kLanSelectionVersion )
+		&& ( header[ 2 ] > 0 ) && ( header[ 2 ] <= kLanSelectionMaxSize );
+
+	if ( ok )
+	{
+		pData = new U8[ header[ 2 ] ];
+		ok = ( fread( pData, header[ 2 ], 1, pFile ) == 1 ) && ( LanSelectionChecksum( pData, header[ 2 ] ) == header[ 3 ] );
+	}
+	fclose( pFile );
+
+	if ( ok )
+	{
+		Sys::C_MemoryStream stream( pData, header[ 2 ] );
+		Sys::BinaryDeserialiserAutoEndian in( stream );
+
+		U32 classCount = 0;
+		in >> classCount;
+
+		if ( classCount == (U32)mLastCarUsedClass.Size() )
+		{
+			for ( S32 i = 0; i < mLastCarUsedClass.Size(); i++ )
+			{
+				U32 vehicleId = 0;
+				in >> vehicleId;
+
+				// keep the default for a class when the stored car no longer exists
+				if ( vehicleId != 0 && C_GameVehicleData::Instance().mVehicles[ (GAMEDATA_ID)vehicleId ] )
+					mLastCarUsedClass[ i ] = vehicleId;
+			}
+
+			mUnrankedLoadouts.Deserialise( in );
+		}
+	}
+
+	delete [] pData;
+}
+#endif
 
 
 bool C_MultiplayerProfile::IsBlurDeveloper()
