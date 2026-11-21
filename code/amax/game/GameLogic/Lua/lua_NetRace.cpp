@@ -1887,6 +1887,27 @@ namespace Game
 		return 1;
 	}
 
+	// [Blur2PC] Not retail: CanStartCustomRace treats players in the lobby garage or mod shop as ready, so the
+	// host's start asks first while any are there (MpLobby.lua). Counts race players in the changing car state.
+	static S32 NumPlayersChoosingCar(lua_State* pState)
+	{
+		U32 count = 0;
+		RacerNet::C_NetServices& services = RacerNet::C_NetServices::Instance();
+		if (services.IsInitialised())
+		{
+			RacerNet::C_NetPlayerManager& mgr = services.PlayerManager();
+			for (U8 i=0; i<mgr.TotalSize(); i++)
+			{
+				RacerNet::C_NetPlayer* p = mgr.Index(i);
+				if (p->m_RaceConnection.IsActive() && RacerNet::eNetPlayerStateChangingCar == p->m_RaceConnection.m_PlayerState)
+					count++;
+			}
+		}
+
+		lua_pushnumber(pState, count);
+		return 1;
+	}
+
 	static S32 CanStartNextCustomRace(lua_State* pState)
 	{
 		bool canStart = false;
@@ -3015,6 +3036,7 @@ namespace Game
 		{"EndPlay",									EndPlay},								// called when the player leaves the race and returns to the lobby.
 
 		{"CanStartCustomRace",						CanStartCustomRace},					// if hosting, is it possible to actually start the race.
+		{"NumPlayersChoosingCar",					NumPlayersChoosingCar},					// [Blur2PC] race players in the lobby garage or mod shop.
 		{"CanStartNextCustomRace",					CanStartNextCustomRace},				// if hosting, is it possible to actually start the nect event in a championship.
 		{"CanStartResultsWinnner",					CanStartResultsWinnner},				// is all players who raced idle on the results screen.
 		{"CanStartResultsCountdown",				CanStartResultsCountdown},				// is all players who raced idle on the results screen.

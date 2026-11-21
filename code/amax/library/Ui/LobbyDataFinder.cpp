@@ -411,6 +411,32 @@ const WCHAR* C_LobbyDataFinder::GetVariableText( const char* pVariableName )
 		}
 	}
 	/*---------------------------
+		[Blur2PC] Not retail (English only): the host's warning before starting while players are still in
+		the lobby garage or mod shop, naming them.
+	----------------------------*/
+	else
+	if ( strcmp(pVariableName, "START_WHILE_CHOOSING" ) == 0 )
+	{
+		RacerNet::C_NetPlayerManager& mgr = services.PlayerManager();
+
+		m_VariableText.Format( L"Still choosing a car or loadout:" );
+
+		bool first = true;
+		for (U8 i=0; i<mgr.TotalSize(); i++)
+		{
+			RacerNet::C_NetPlayer* p = mgr.Index(i);
+
+			if ( p->m_RaceConnection.IsActive() && p->m_RaceConnection.m_PlayerState == RacerNet::eNetPlayerStateChangingCar )
+			{
+				m_VariableText.Add( first ? L" " : L", " );
+				m_VariableText.Add( p->m_User.Name() );
+				first = false;
+			}
+		}
+
+		m_VariableText.Add( L". Start the race anyway?" );
+	}
+	/*---------------------------
 		Race Preview Data
 	----------------------------*/
 	else
