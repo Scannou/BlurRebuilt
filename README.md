@@ -84,7 +84,7 @@ These Windows environment variables are available if you want to adjust things:
 
 ## Race events
 
-LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Players are identified by `id`, which is the same on every PC (the `index` differs between PCs). Laps and overtakes are logged for every player; power-up hits and wrecks only for the PC's own car so far.
+LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Players are identified by `id`, which is the same on every PC (the `index` differs between PCs). Laps, overtakes, power-up hits and wrecks are logged for every player. Each PC works these out from its own view of the race, so two PCs can differ slightly on close moments; `result` lines are the same everywhere. A wreck says who caused it in `by`: `attacker` and `self` come from the game, `last_hit` means another player's car was wrecked within 5 seconds of a power-up hit, `unknown` means no recent hit.
 
 ## Intro videos
 

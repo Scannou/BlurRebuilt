@@ -104,6 +104,11 @@ static U64		s_RaceEventStartMs		= 0;
 static U32		s_RaceEventFinishedMask	= 0;	// vehicles with a finish event this race
 static S32		s_RaceEventFinishOrder	= 0;	// vehicles that crossed the line so far
 static S32		s_RaceEventLaps[ 32 ];			// laps completed per vehicle this race
+static S32		s_RaceEventLastHitBy[ 32 ];		// per vehicle: who last hit it with a power-up (-1: nobody)
+static U64		s_RaceEventLastHitMs[ 32 ];
+static const S32 kRaceEventRecentHits	= 64;
+static U32		s_RaceEventRecentHits[ kRaceEventRecentHits ];	// power-up id and hit vehicle already written
+static S32		s_RaceEventRecentHitNext = 0;
 
 static const char* RaceEventName( const char* const* pNames, const S32 count, const S32 value )
 {
@@ -349,6 +354,8 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	s_RaceEventFinishedMask = 0;
 	s_RaceEventFinishOrder = 0;
 	memset( s_RaceEventLaps, 0, sizeof( s_RaceEventLaps ) );
+	memset( s_RaceEventLastHitBy, 0xff, sizeof( s_RaceEventLastHitBy ) );
+	memset( s_RaceEventRecentHits, 0xff, sizeof( s_RaceEventRecentHits ) );
 
 	if ( !RaceEventsActive() )
 		return;
@@ -403,10 +410,27 @@ void C_GameLoggingManager::RaceEventOvertake( const U8 overtakerIndex, const U8 
 	line.Write();
 }
 
-void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level )
+// A power-up hitting any car, reported by the hit car's damage component (local cars and the network copies of
+// remote cars both get the hit). One event per power-up and hit car.
+void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level, const U32 pickupId )
 {
-	if ( !RaceEventsActive() )
+	if ( !RaceEventsActive() || hitIndex >= 32 )
 		return;
+
+	const U32 key = ( pickupId << 5 ) ^ hitIndex;
+	for ( S32 i = 0; i < kRaceEventRecentHits; i++ )
+	{
+		if ( s_RaceEventRecentHits[ i ] == key )
+			return;
+	}
+	s_RaceEventRecentHits[ s_RaceEventRecentHitNext ] = key;
+	s_RaceEventRecentHitNext = ( s_RaceEventRecentHitNext + 1 ) % kRaceEventRecentHits;
+
+	if ( firingIndex < 32 && firingIndex != hitIndex )
+	{
+		s_RaceEventLastHitBy[ hitIndex ] = firingIndex;
+		s_RaceEventLastHitMs[ hitIndex ] = GetTickCount64();
+	}
 
 	C_RaceEventLine line( "powerup_hit" );
 	line.Player( "player", firingIndex );
@@ -416,15 +440,28 @@ void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 h
 	line.Write();
 }
 
-void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex )
+// A local car's wreck comes with the attacker the game credits ("by": "attacker") or none ("self"). A remote car's
+// wreck is only seen as its health running out, so it is credited to the last power-up hit within 5 seconds
+// ("last_hit") or to nobody ("unknown").
+void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote )
 {
-	if ( !RaceEventsActive() )
+	if ( !RaceEventsActive() || wreckedIndex >= 32 )
 		return;
 
+	S32 attacker = attackerIndex;
+	const char* pBy = ( attacker >= 0 ) ? "attacker" : "self";
+	if ( remote )
+	{
+		const bool recent = s_RaceEventLastHitBy[ wreckedIndex ] >= 0 && GetTickCount64() - s_RaceEventLastHitMs[ wreckedIndex ] <= 5000;
+		attacker = recent ? s_RaceEventLastHitBy[ wreckedIndex ] : -1;
+		pBy = recent ? "last_hit" : "unknown";
+	}
+
 	C_RaceEventLine line( "wreck" );
-	if ( attackerIndex >= 0 )
-		line.Player( "player", attackerIndex );
+	if ( attacker >= 0 )
+		line.Player( "player", attacker );
 	line.Player( "wrecked", wreckedIndex );
+	line.Str( "by", pBy );
 	line.Write();
 }
 

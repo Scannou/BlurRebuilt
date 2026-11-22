@@ -44,6 +44,7 @@
 #include "GameAudio\SystemSubsystem.h"
 #include "game/AmaxCam/VehicleFeed.h"
 #include "Game/AmaxCam/CameraSystem.h"
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] race events
 
 //#pragma optimize("", off)					// TEMP TEMP TEMP TEMP TEMP TEMP TEMP TEMP
 
@@ -2387,6 +2388,11 @@ namespace Components
 
 				if( mVehicleIndex == msg->mVehicleIndex )
 				{
+				#if defined ( PLATFORM_PC )
+					// [Blur2PC] race events: a local car was hit (remote cars: VLC_Network_Damage.cpp)
+					::Game::C_GameLoggingManager::Instance().RaceEventPowerupHit(msg->mFiringVehicleIndex, msg->mVehicleIndex, msg->mPickupType, msg->mLevel, msg->mUniqueID);
+				#endif
+
 					int damage = 0;
 					if(mpLevelState->mDamageMode == E_DAMAGE_MODE_ONE_SHOT_KILL)
 						damage = ((Game::Actors::C_VehicleLogicActor*)GetActor())->GetMaxHealth();
