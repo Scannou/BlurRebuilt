@@ -100,6 +100,8 @@ BIZ_STATIC_ASSERT( sizeof( s_RaceEventStatNames ) / sizeof( s_RaceEventStatNames
 
 static char		s_RaceEventRaceId[ 32 ]	= "";
 static U64		s_RaceEventStartMs		= 0;
+static U32		s_RaceEventFinishedMask	= 0;	// vehicles with a finish event this race
+static S32		s_RaceEventFinishOrder	= 0;	// vehicles that crossed the line so far
 
 static const char* RaceEventName( const char* const* pNames, const S32 count, const S32 value )
 {
@@ -280,6 +282,8 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	GetLocalTime( &now );
 	sprintf_s( s_RaceEventRaceId, "%04u%02u%02u-%02u%02u%02u", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond );
 	s_RaceEventStartMs = GetTickCount64();
+	s_RaceEventFinishedMask = 0;
+	s_RaceEventFinishOrder = 0;
 
 	if ( !RaceEventsActive() )
 		return;
@@ -354,6 +358,23 @@ void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wre
 	if ( attackerIndex >= 0 )
 		line.Player( "player", attackerIndex );
 	line.Player( "wrecked", wreckedIndex );
+	line.Write();
+}
+
+// The first time a vehicle stops racing: crossed the line ("finished", with its place in the finishing order),
+// timed out, eliminated, wrecked out or left. For a remote car this is when its result data arrives.
+void C_GameLoggingManager::RaceEventFinish( const U8 vehicleIndex, const S32 vehicleState, const F32 raceTime )
+{
+	if ( !RaceEventsActive() || vehicleIndex >= 32 || ( s_RaceEventFinishedMask & ( 1u << vehicleIndex ) ) )
+		return;
+	s_RaceEventFinishedMask |= 1u << vehicleIndex;
+
+	C_RaceEventLine line( "finish" );
+	line.Player( "player", vehicleIndex );
+	line.Str( "state", RaceEventName( s_RaceEventStateNames, E_VEHICLE_STATE_MAX, vehicleState ) );
+	if ( vehicleState == E_VEHICLE_STATE_FINISHED )
+		line.Int( "finish_order", ++s_RaceEventFinishOrder );
+	line.Float( "race_time", raceTime );
 	line.Write();
 }
 

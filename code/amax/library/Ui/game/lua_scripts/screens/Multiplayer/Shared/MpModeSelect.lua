@@ -68,10 +68,12 @@ function MessageUpdate( message, arg1, arg2, arg3, arg4 )
 			PlaySfxNext()
 
 			Mp_ResetCustomRace()
-			-- [Blur2PC] Not retail: a new LAN game starts with class A cars and 2 laps instead of the custom race defaults.
+			-- [Blur2PC] Not retail: a new LAN game starts with class A cars, 2 laps and medium handicap instead of the
+			-- custom race defaults.
 			if Amax.GetGameMode() == UIEnums.GameMode.SystemLink then
-				UIGlobals.CustomRaceSettings.class	= UIEnums.MpVehicleClass.ClassA
-				UIGlobals.CustomRaceSettings.laps	= 2
+				UIGlobals.CustomRaceSettings.class		= UIEnums.MpVehicleClass.ClassA
+				UIGlobals.CustomRaceSettings.laps		= 2
+				UIGlobals.CustomRaceSettings.handicap	= UIEnums.MpHandicap.Medium
 			end
 			net_MpEnterPlayMode( UIEnums.PlayMode.CustomRace )
 
