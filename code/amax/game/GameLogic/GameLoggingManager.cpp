@@ -32,6 +32,11 @@
 #include <GameLogic/GameData/GameVehicleData.h>
 #include <GameLogic/GameModes/GameModeBase.h>
 #include <GameLogic/RaceModes/RaceModeDefines.h>
+#include <Network/Core/NetServices.h>
+#include <Network/Player/NetPlayer.h>
+#include <Network/Player/NetPlayerConnection.h>
+#include <Network/Player/NetPlayerManager.h>
+#include <Network/Player/NetPlayerStates.h>
 #include <float.h>
 #include <shlobj.h>
 #include <ws2tcpip.h>
@@ -195,10 +200,28 @@ static void SendRaceEventUdp( const char* pText, const size_t length )
 		sendto( s_Socket, pText, (int)length, 0, (const sockaddr*)&s_Address, s_AddressLength );
 }
 
+// Once this PC starts leaving the race (NetRace.EnterDisconnecting), every other car is dropped as "left race" on
+// its way out; that is not something that happened in the race, so nothing more is written.
+static bool LocalPlayerLeavingRace()
+{
+	RacerNet::C_NetServices& services = RacerNet::C_NetServices::Instance();
+	if ( !services.IsInitialised() )
+		return false;
+
+	RacerNet::C_NetPlayerManager& mgr = services.PlayerManager();
+	for ( U8 i = 0; i < mgr.LocalSize(); i++ )
+	{
+		const RacerNet::C_NetPlayer* p = mgr.Index( i );
+		if ( p && p->LocalPlayer() && p->m_RaceConnection.m_PlayerState == RacerNet::eNetPlayerStateDisconnecting )
+			return true;
+	}
+	return false;
+}
+
 static bool RaceEventsActive()
 {
 	C_RaceBookLayer* pLayer = C_GameApp::GetInstance()->GetRaceBookLayer();
-	return s_RaceEventRaceId[ 0 ] && pLayer && pLayer->GetGameModePtr() && pLayer->GetGameModePtr()->IsNetwork();
+	return s_RaceEventRaceId[ 0 ] && pLayer && pLayer->GetGameModePtr() && pLayer->GetGameModePtr()->IsNetwork() && !LocalPlayerLeavingRace();
 }
 
 // One JSON object, written as one line; text that does not fit is dropped rather than cut mid-value.
