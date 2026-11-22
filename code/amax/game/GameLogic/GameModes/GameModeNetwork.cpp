@@ -168,6 +168,11 @@ namespace Game
 		//	Update the temp stats we only hold for this session (winning streak and stuff for session scoreboard)
 		C_GameProfileManager::Instance().GetPrimaryProfile()->mMultiplayerProfile.GetMultiplayerStatistics().SessionStatsUpdate();
 
+	#if defined ( PLATFORM_PC )
+		// [Blur2PC] race events: every player's result and statistics (LAN and online)
+		C_GameLoggingManager::Instance().RaceEventResults();
+	#endif
+
 		if(IsOnline())
 		{
 			if(IsRanked())

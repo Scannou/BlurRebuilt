@@ -26,6 +26,16 @@
 #include <Ui\game\Multiplayer\MultiplayerDefines.h>
 #include "bdLobby\bdLobbyCommon\bdAuthCommon.h"
 
+#if defined ( PLATFORM_PC )
+// [Blur2PC] race events
+#include <GameLogic/GameData/GameData.h>
+#include <GameLogic/GameData/GameVehicleData.h>
+#include <GameLogic/GameModes/GameModeBase.h>
+#include <GameLogic/RaceModes/RaceModeDefines.h>
+#include <float.h>
+#include <shlobj.h>
+#endif
+
 Debug::Logger &g_DemonwareGameLogging( Debug::GetLogger("Demonware.GameLogging") );
 
 namespace Game
@@ -44,6 +54,342 @@ C_GameLoggingManager C_GameLoggingManager::s_instance;
 void C_GameLoggingManager::DebugExportEnumNames()
 {
 }
+
+#if defined ( PLATFORM_PC )
+// [Blur2PC] Not retail: LAN and online races write their events as JSON lines (one object per line) to
+// race_events.jsonl in the profile save folder (%APPDATA%\Bizarre Creations\Blur\, or BLUR2PC_SAVE_ROOT as in
+// SaveSystem_pc.cpp), so other tools can follow races. BLUR_RACE_EVENTS=off turns this off; any other value is
+// the file path to use. Every line has "time" (local), "race" (id of the race), "t" (seconds since the race
+// started) and "event". Players are {"index","name"} with the race's vehicle index. Each PC writes what it
+// sees: events about its own car are complete, events between other cars depend on what this PC is told.
+static const char* const s_RaceEventModeNames[] =
+{
+	"none", "street_race", "racing", "elimination", "points", "motor_mash",
+	"destruction", "checkpoint", "fan_demand", "boss_battle",
+	"friend_street_race", "friend_destruction", "friend_checkpoint", "friend_fan_demand", "friend_boss_battle",
+};
+BIZ_STATIC_ASSERT( sizeof( s_RaceEventModeNames ) / sizeof( s_RaceEventModeNames[ 0 ] ) == E_RaceMode_MAX );
+
+static const char* const s_RaceEventPickupNames[] =
+{
+	"nitro", "shock", "shunt", "bolt", "barge", "mine", "repair", "shield", "fan", "stopwatch", "super_shield", "all",
+};
+BIZ_STATIC_ASSERT( sizeof( s_RaceEventPickupNames ) / sizeof( s_RaceEventPickupNames[ 0 ] ) == E_PICKUP_TYPE_MAX );
+
+static const char* const s_RaceEventStateNames[] =
+{
+	"unknown", "racing", "finished", "timed_out", "left_race", "eliminated", "wrecked", "waiting_to_start",
+};
+BIZ_STATIC_ASSERT( sizeof( s_RaceEventStateNames ) / sizeof( s_RaceEventStateNames[ 0 ] ) == E_VEHICLE_STATE_MAX );
+
+// UI::E_MultiplayerStat order
+static const char* const s_RaceEventStatNames[] =
+{
+	"race_time", "fastest_lap", "slowest_lap", "fans", "health_remaining", "logic_position", "distance_travelled",
+	"laps_completed", "on_track_points", "elimination_points", "powerup_hits", "hits_by_powerups", "kill_streak",
+	"death_streak", "accuracy", "longest_chain", "powerups_evaded", "top_speed_mph", "car_to_car_hits",
+	"car_to_car_victim_hits", "environmental_crashes", "pickups_collected", "longest_drift", "times_in_water",
+	"times_off_edge", "damage_dealt", "longest_time_without_being_wrecked", "cars_wrecked", "times_hit",
+	"mines_fragmented_with_mastermine", "time_invisible_with_silent_running", "powerups_absorbed_with_safety_net",
+	"players_scrambled", "players_hit_with_decoys", "cars_battering_rammed", "times_protected_by_stable_frame",
+	"players_hit_with_iron_fist", "powerups_dropped", "longest_time_not_damaged", "time_in_first_place",
+	"longest_jump", "players_hit_with_barge", "nitro_overtakes", "blocked_powerups", "powerups_shielded",
+	"players_hit_with_mine", "players_hit_with_shunt", "players_hit_with_bolt",
+};
+BIZ_STATIC_ASSERT( sizeof( s_RaceEventStatNames ) / sizeof( s_RaceEventStatNames[ 0 ] ) == UI::E_MultiplayerStat_Count );
+
+static char		s_RaceEventRaceId[ 32 ]	= "";
+static U64		s_RaceEventStartMs		= 0;
+
+static const char* RaceEventName( const char* const* pNames, const S32 count, const S32 value )
+{
+	return ( value >= 0 && value < count ) ? pNames[ value ] : "unknown";
+}
+
+static bool GetRaceEventsPath( char (&path)[ MAX_PATH ] )
+{
+	if ( const char* pSetting = getenv( "BLUR_RACE_EVENTS" ) )
+	{
+		if ( _stricmp( pSetting, "off" ) == 0 || strcmp( pSetting, "0" ) == 0 )
+			return false;
+		if ( pSetting[ 0 ] )
+		{
+			strcpy_s( path, pSetting );
+			return true;
+		}
+	}
+
+	if ( const char* pOverride = getenv( "BLUR2PC_SAVE_ROOT" ) )
+	{
+		sprintf_s( path, "%s\\race_events.jsonl", pOverride );
+	}
+	else
+	{
+		char appData[ MAX_PATH ] = { 0 };
+		SHGetFolderPathA( NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, appData );
+		sprintf_s( path, "%s\\Bizarre Creations\\Blur\\race_events.jsonl", appData );
+	}
+	return true;
+}
+
+static bool RaceEventsActive()
+{
+	C_RaceBookLayer* pLayer = C_GameApp::GetInstance()->GetRaceBookLayer();
+	return s_RaceEventRaceId[ 0 ] && pLayer && pLayer->GetGameModePtr() && pLayer->GetGameModePtr()->IsNetwork();
+}
+
+// One JSON object, written as one line; text that does not fit is dropped rather than cut mid-value.
+class C_RaceEventLine
+{
+public:
+	C_RaceEventLine( const char* pEvent ) : m_Length( 0 ), m_NeedComma( false ), m_Overflow( false )
+	{
+		SYSTEMTIME now;
+		GetLocalTime( &now );
+
+		char time[ 32 ];
+		sprintf_s( time, "%04u-%02u-%02uT%02u:%02u:%02u", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond );
+
+		Append( "{" );
+		Str( "time", time );
+		Str( "race", s_RaceEventRaceId );
+		Float( "t", (F32)( GetTickCount64() - s_RaceEventStartMs ) / 1000.0f );
+		Str( "event", pEvent );
+	}
+
+	void Int( const char* pKey, const S32 value )
+	{
+		char text[ 16 ];
+		sprintf_s( text, "%d", value );
+		Key( pKey );
+		Append( text );
+	}
+
+	void Float( const char* pKey, const F32 value )
+	{
+		char text[ 32 ];
+		sprintf_s( text, "%.3f", _finite( value ) ? value : 0.0f );
+		Key( pKey );
+		Append( text );
+	}
+
+	void Str( const char* pKey, const char* pValue )
+	{
+		Key( pKey );
+		Append( "\"" );
+		for ( const char* p = pValue; p && *p; p++ )
+		{
+			char escaped[ 8 ];
+			if ( *p == '"' || *p == '\\' )
+				sprintf_s( escaped, "\\%c", *p );
+			else if ( (U8)*p < 0x20 )
+				sprintf_s( escaped, "\\u%04x", (U8)*p );
+			else
+				sprintf_s( escaped, "%c", *p );
+			Append( escaped );
+		}
+		Append( "\"" );
+	}
+
+	void WideStr( const char* pKey, const WCHAR* pValue )
+	{
+		char utf8[ 256 ] = { 0 };
+		if ( pValue )
+			WideCharToMultiByte( CP_UTF8, 0, pValue, -1, utf8, sizeof( utf8 ) - 1, NULL, NULL );
+		Str( pKey, utf8 );
+	}
+
+	void Player( const char* pKey, const S32 vehicleIndex )
+	{
+		const Game::C_LevelState& levelState = C_Game::GetInstance()->GetLevelState();
+
+		BeginObject( pKey );
+		Int( "index", vehicleIndex );
+		if ( vehicleIndex >= 0 && vehicleIndex < (S32)levelState.mNumCars )
+			WideStr( "name", levelState.mCars[ vehicleIndex ].mNameAboveCar.Chars() );
+		EndObject();
+	}
+
+	void BeginObject( const char* pKey )
+	{
+		Key( pKey );
+		Append( "{" );
+		m_NeedComma = false;
+	}
+
+	void EndObject()
+	{
+		Append( "}" );
+		m_NeedComma = true;
+	}
+
+	void Write()
+	{
+		Append( "}\n" );
+
+		char path[ MAX_PATH ];
+		if ( m_Overflow || !GetRaceEventsPath( path ) )
+			return;
+
+		FILE* pFile = NULL;
+		if ( fopen_s( &pFile, path, "ab" ) == 0 && pFile )
+		{
+			fwrite( m_Text, 1, m_Length, pFile );
+			fclose( pFile );
+		}
+	}
+
+private:
+	void Key( const char* pKey )
+	{
+		if ( m_NeedComma )
+			Append( "," );
+		Append( "\"" );
+		Append( pKey );
+		Append( "\":" );
+		m_NeedComma = true;
+	}
+
+	void Append( const char* pText )
+	{
+		const size_t length = strlen( pText );
+		if ( m_Length + length >= sizeof( m_Text ) )
+		{
+			m_Overflow = true;
+			return;
+		}
+		memcpy( m_Text + m_Length, pText, length + 1 );
+		m_Length += length;
+	}
+
+	char	m_Text[ 4096 ];
+	size_t	m_Length;
+	bool	m_NeedComma;
+	bool	m_Overflow;
+};
+
+static const char* RaceEventCarTag( const U32 carId )
+{
+	const AmaxVehicle* pVehicle = C_GameVehicleData::Instance().mVehicles[ (GAMEDATA_ID)carId ];
+	return pVehicle ? pVehicle->tag.Text() : "";
+}
+
+void C_GameLoggingManager::RaceEventRaceStart()
+{
+	SYSTEMTIME now;
+	GetLocalTime( &now );
+	sprintf_s( s_RaceEventRaceId, "%04u%02u%02u-%02u%02u%02u", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond );
+	s_RaceEventStartMs = GetTickCount64();
+
+	if ( !RaceEventsActive() )
+		return;
+
+	const Game::C_LevelState& levelState = C_Game::GetInstance()->GetLevelState();
+	const AmaxCity* pCity = C_GameData::Instance().mCities[ (GAMEDATA_ID)levelState.mCity ];
+	const AmaxRoute* pRoute = C_GameData::Instance().mRoutes[ (GAMEDATA_ID)levelState.mRoute ];
+
+	C_RaceEventLine line( "race_start" );
+	line.Str( "mode", RaceEventName( s_RaceEventModeNames, E_RaceMode_MAX, levelState.mRaceMode ) );
+	line.Str( "city", pCity ? pCity->tag.Text() : "" );
+	line.Str( "route", pRoute ? pRoute->tag.Text() : "" );
+	line.Int( "laps", (S32)levelState.mLaps );
+	line.Int( "time_limit", levelState.mTimeLimit );
+	line.Int( "players", (S32)levelState.mNumCars );
+	line.Player( "logged_by", 0 );
+	line.Write();
+
+	for ( U32 i = 0; i < levelState.mNumCars; i++ )
+	{
+		C_RaceEventLine player( "player" );
+		player.Player( "player", (S32)i );
+		player.Int( "team", levelState.mCars[ i ].mTeam );
+		player.Str( "car", RaceEventCarTag( levelState.mCars[ i ].mCarID ) );
+		player.Int( "start_position", (S32)levelState.mCars[ i ].mStartPosition + 1 );
+		player.Write();
+	}
+}
+
+void C_GameLoggingManager::RaceEventLap( const U8 vehicleIndex, const S32 lap, const F32 lapTime )
+{
+	if ( !RaceEventsActive() )
+		return;
+
+	C_RaceEventLine line( "lap" );
+	line.Player( "player", vehicleIndex );
+	line.Int( "lap", lap );
+	line.Float( "lap_time", lapTime );
+	line.Write();
+}
+
+void C_GameLoggingManager::RaceEventOvertake( const U8 overtakerIndex, const U8 overtakenIndex )
+{
+	if ( !RaceEventsActive() )
+		return;
+
+	C_RaceEventLine line( "overtake" );
+	line.Player( "player", overtakerIndex );
+	line.Player( "overtaken", overtakenIndex );
+	line.Write();
+}
+
+void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level )
+{
+	if ( !RaceEventsActive() )
+		return;
+
+	C_RaceEventLine line( "powerup_hit" );
+	line.Player( "player", firingIndex );
+	line.Player( "hit", hitIndex );
+	line.Str( "powerup", RaceEventName( s_RaceEventPickupNames, E_PICKUP_TYPE_MAX, pickupType ) );
+	line.Int( "level", level + 1 );
+	line.Write();
+}
+
+void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex )
+{
+	if ( !RaceEventsActive() )
+		return;
+
+	C_RaceEventLine line( "wreck" );
+	if ( attackerIndex >= 0 )
+		line.Player( "player", attackerIndex );
+	line.Player( "wrecked", wreckedIndex );
+	line.Write();
+}
+
+void C_GameLoggingManager::RaceEventResults()
+{
+	if ( !RaceEventsActive() )
+		return;
+
+	const Game::C_LevelState& levelState = C_Game::GetInstance()->GetLevelState();
+
+	for ( U32 i = 0; i < levelState.mNumCars; i++ )
+	{
+		NetVehicleData result;
+		if ( !C_MpResults::Instance().GetPlayerResults( (U8)i, result ) )
+			continue;
+
+		C_RaceEventLine line( "result" );
+		line.Player( "player", (S32)i );
+		line.Int( "position", result.m_Position );
+		line.Str( "state", RaceEventName( s_RaceEventStateNames, E_VEHICLE_STATE_MAX, result.m_State ) );
+		line.Int( "team", levelState.mCars[ i ].mTeam );
+		line.Str( "car", RaceEventCarTag( levelState.mCars[ i ].mCarID ) );
+		line.Int( "start_position", (S32)levelState.mCars[ i ].mStartPosition + 1 );
+
+		line.BeginObject( "stats" );
+		for ( S32 s = 0; s < UI::E_MultiplayerStat_Count; s++ )
+			line.Float( s_RaceEventStatNames[ s ], result.m_Statistics[ s ] );
+		line.EndObject();
+
+		line.Write();
+	}
+
+	C_RaceEventLine end( "race_end" );
+	end.Write();
+}
+#endif
 
 void C_GameLoggingManager::UploadGameLog()
 {
