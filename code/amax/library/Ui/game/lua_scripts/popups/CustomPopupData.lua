@@ -5930,6 +5930,30 @@ CustomPopup =
 								UISystem.SystemQuitGame( true )
 							end,
 		},
+
+		-- [Blur2PC] Not retail: the host pressed start while players are still in the lobby garage or mod shop.
+		-- The message (LOBBY_START_WHILE_CHOOSING) names them; Yes starts the race anyway.
+		[UIEnums.CustomPopups.StartWhileChoosingCar] =
+		{
+			darken			= true,
+
+			title_text_ID	= UIText.POP_TITLE_WARNING,
+			message_text_ID	= "LOBBY_START_WHILE_CHOOSING",
+
+			next_text_ID	= UIText.INFO_YES_A,
+			back_text_ID	= UIText.INFO_NO_B,
+
+			update_CB		= function( time )
+								UIButtons.ChangeText( SCUI_Popup.name_to_id.message, "LOBBY_START_WHILE_CHOOSING" )
+							end,
+
+			next_CB			= function()
+								if IsFunction( MpLobby_HostCanPressStart ) == true and MpLobby_HostCanPressStart() == true then
+									NetRace.LaunchCustomRace()
+									UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Ready
+								end
+							end,
+		},
 	},
 }
 

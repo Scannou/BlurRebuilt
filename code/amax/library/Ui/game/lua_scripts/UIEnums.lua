@@ -375,6 +375,7 @@ UIEnums =
 		FriendDemandNotFriend					= 202,
 		ConfirmVideoSettings					= 203,	-- [Blur2PC] retail Blur PC graphics options (retail value 225)
 		KillApplication							= 204,	-- [Blur2PC] retail Blur PC: quit to desktop from the start screen (T146)
+		StartWhileChoosingCar					= 205,	-- [Blur2PC] not retail: host starts while players are still choosing a car or loadout
 	},
 	
 	-- Racebook message system types

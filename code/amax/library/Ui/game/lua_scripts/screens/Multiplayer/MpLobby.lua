@@ -318,8 +318,13 @@ function MessageUpdate( message, arg1, arg2, arg3, arg4 )
 	end
 
 	if message == UIEnums.Message.ButtonStart and MpLobby_HostCanPressStart() == true and arg2 == true then
-		NetRace.LaunchCustomRace()
-		UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Ready
+		-- [Blur2PC] Not retail: ask first while anyone is still choosing a car or loadout.
+		if NetRace.NumPlayersChoosingCar() > 0 then
+			SetupCustomPopup( UIEnums.CustomPopups.StartWhileChoosingCar )
+		else
+			NetRace.LaunchCustomRace()
+			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Ready
+		end
 
 	elseif GUI.CanViewMap == true and message == UIEnums.Message.ButtonRightShoulder and NetRace.RaceInProgress() == true and NetRace.HasRaceFinished() == false then
 		PushScreen( "Multiplayer\\MpRacePreview.lua" )

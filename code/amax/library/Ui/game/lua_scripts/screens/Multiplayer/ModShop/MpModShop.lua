@@ -68,6 +68,12 @@ function Init()
 	GUI.UnlockMap = Multiplayer.GetAbilityUnlockMap()
 
 	UIGlobals.Multiplayer.ModShopActive = true
+
+	-- [Blur2PC] Not retail: count as choosing (like the lobby garage) so the host is asked before starting.
+	GUI.in_lobby = UIGlobals.Multiplayer.InLobby
+	if GUI.in_lobby == true then
+		NetRace.ChangeLocalPlayerState( Profile.GetPrimaryPad(), UIEnums.Network.PlayerStates.eNetPlayerStateChangingCar )
+	end
 end
 
 function PostInit()
@@ -326,6 +332,10 @@ end
 
 function End()
 	UIGlobals.Multiplayer.ModShopActive = false
+
+	if GUI.in_lobby == true then
+		NetRace.ChangeLocalPlayerState( Profile.GetPrimaryPad(), UIEnums.Network.PlayerStates.eNetPlayerStateIdle )
+	end
 end
 
 

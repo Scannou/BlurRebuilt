@@ -775,6 +775,12 @@ namespace Game
 			if (0 == p->m_RaceData.m_VehicleData.m_xtVehicleId)	//	We should only hit this once, when we join the game
 			{
 				// need to choose a default vehicle since we don't have one yet. probably just joined or created the session.
+			#if defined ( PLATFORM_PC )
+				// [Blur2PC] start from the car and loadouts last chosen in a LAN lobby
+				C_GameProfile* pLanProfile = C_GameProfileManager::Instance().GetPrimaryProfile();
+				if (!IsOnline() && pLanProfile)
+					pLanProfile->GetMultiplayerProfile()->LoadLanSelection();
+			#endif
 				ChooseNewVehicle(p->m_ControllerPort, p->m_RaceData.m_VehicleData);
 				ChooseNewLoadOut(p->m_ControllerPort, p->m_RaceData.m_LoadOut);
 
