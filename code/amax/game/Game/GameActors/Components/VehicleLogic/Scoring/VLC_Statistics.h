@@ -101,6 +101,9 @@ namespace Components
 		U32												mLastFiredID;
 
 		Btl::Set<U32>									mPerksHit;
+#if defined ( PLATFORM_PC )
+		Btl::Set<U32>									mLoggedPerkHits;	// [Blur2PC] power-up id and hit vehicle already in the race events
+#endif
 		bool											mWasJustDrifting;
 
 	private:
