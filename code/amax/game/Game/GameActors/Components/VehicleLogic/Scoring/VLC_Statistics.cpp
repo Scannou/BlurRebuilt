@@ -530,12 +530,6 @@ namespace Components
 
 					const ::Game::Actors::C_VehicleOvertakeMsg* pMsg = Messaging::MessageCast< ::Game::Actors::C_VehicleOvertakeMsg >(pMessage);
 
-				#if defined ( PLATFORM_PC )
-					// [Blur2PC] race events
-					if( pMsg->mOvertakerVehicleIndex == mVehicleIndex )
-						::Game::C_GameLoggingManager::Instance().RaceEventOvertake(pMsg->mOvertakerVehicleIndex, pMsg->mOvertakeeVehicleIndex);
-				#endif
-
 					if( pMsg->mOvertakerVehicleIndex == mVehicleIndex )
 						SetVehicleOvertakerStatistics(pMsg->mOvertakerVehicleIndex, pMsg->mOvertakeeVehicleIndex);
 					else if( pMsg->mOvertakeeVehicleIndex == mVehicleIndex )
@@ -644,12 +638,6 @@ namespace Components
 					else if( pMsg->mFiringVehicleIndex == mVehicleIndex && OffensivePerk(ePickupType, ePickupSubType, false))
 					{
 						Btl::InsertionResult<Btl::Set<U32>::Iterator> insRes = mPerksHit.Insert(pMsg->mUniqueID);
-
-				#if defined ( PLATFORM_PC )
-					// [Blur2PC] race events: once per power-up and hit vehicle
-					if( mLoggedPerkHits.Insert((pMsg->mUniqueID << 5) ^ pMsg->mVehicleIndex).inserted )
-						::Game::C_GameLoggingManager::Instance().RaceEventPowerupHit(mVehicleIndex, pMsg->mVehicleIndex, ePickupType, pMsg->mLevel);
-				#endif
 
 						if(ePickupType == E_PICKUP_TYPE_BOMB && ePickupSubType == E_PICKUP_SUB_TYPE_REVERSED)
 						{
@@ -809,11 +797,6 @@ namespace Components
 					if(	vehActor->mLapsInfo.mCurrentLap <= 1)
 						break;
 
-				#if defined ( PLATFORM_PC )
-					// [Blur2PC] race events: the lap just completed
-					::Game::C_GameLoggingManager::Instance().RaceEventLap(mVehicleIndex, vehActor->mLapsInfo.mCurrentLap - 1, pMsg->mTime);
-				#endif
-
 					if( pMsg->mTime < vehActor->mStatistics.mFastestLapTime || vehActor->mLapsInfo.mCurrentLap == 2)
 						vehActor->mStatistics.mFastestLapTime = pMsg->mTime;
 					else if( pMsg->mTime > vehActor->mStatistics.mSlowestLapTime )
@@ -934,7 +917,7 @@ namespace Components
 					{
 						HandleMyDeath(false);
 					#if defined ( PLATFORM_PC )
-						::Game::C_GameLoggingManager::Instance().RaceEventWreck(pMsg->mMurdererVehicleIndex, pMsg->mVictimVehicleIndex);	// [Blur2PC] race events
+						::Game::C_GameLoggingManager::Instance().RaceEventWreck(pMsg->mMurdererVehicleIndex, pMsg->mVictimVehicleIndex, false);	// [Blur2PC] race events
 					#endif
 					}
 					return true;
@@ -948,7 +931,7 @@ namespace Components
 					{
 						HandleMyDeath(true);
 					#if defined ( PLATFORM_PC )
-						::Game::C_GameLoggingManager::Instance().RaceEventWreck(-1, pMsg->mVictimVehicleIndex);	// [Blur2PC] race events: wrecked without an attacker
+						::Game::C_GameLoggingManager::Instance().RaceEventWreck(-1, pMsg->mVictimVehicleIndex, false);	// [Blur2PC] race events: wrecked without an attacker
 					#endif
 					}
 

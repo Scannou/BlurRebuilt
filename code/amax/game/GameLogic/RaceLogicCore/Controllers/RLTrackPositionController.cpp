@@ -18,6 +18,7 @@
 
 #include <AI/AI_Amax.h>
 #include <GameLogic/Messaging/GameLogicMessages.h>
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] race events
 
 #ifdef RLC_DEBUG
 #pragma optimize ("", off) //RLC_DEBUG
@@ -532,6 +533,10 @@ void RLTrackPositionController::SplitCrossed(const U8 vehicleIndex, const U8 spl
 			if(pVehicle->mCurrentLapData.mLapNo < pVehicle->mNoLaps )
 			{
 				C_LapIncrementedMsg lapMsg(vehicleIndex, pVehicle->mNoLaps, pVehicle->mCurrentLapData.mLapTime);
+			#if defined ( PLATFORM_PC )
+				// [Blur2PC] race events: the line is tracked for every car, so this covers all players
+				C_GameLoggingManager::Instance().RaceEventLap( (U8)vehicleIndex, pVehicle->mCurrentLapData.mLapTime );
+			#endif
 				C_Game::GetInstance()->GetSubscriberSystem().BroadcastMessage(&lapMsg);
 				m_pRLC->GetActorList()->GetSubscriberSystem().BroadcastMessage(&lapMsg);
 			}

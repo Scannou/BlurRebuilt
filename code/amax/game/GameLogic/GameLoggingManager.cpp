@@ -34,6 +34,7 @@
 #include <GameLogic/RaceModes/RaceModeDefines.h>
 #include <float.h>
 #include <shlobj.h>
+#include <ws2tcpip.h>
 #endif
 
 Debug::Logger &g_DemonwareGameLogging( Debug::GetLogger("Demonware.GameLogging") );
@@ -102,6 +103,12 @@ static char		s_RaceEventRaceId[ 32 ]	= "";
 static U64		s_RaceEventStartMs		= 0;
 static U32		s_RaceEventFinishedMask	= 0;	// vehicles with a finish event this race
 static S32		s_RaceEventFinishOrder	= 0;	// vehicles that crossed the line so far
+static S32		s_RaceEventLaps[ 32 ];			// laps completed per vehicle this race
+static S32		s_RaceEventLastHitBy[ 32 ];		// per vehicle: who last hit it with a power-up (-1: nobody)
+static U64		s_RaceEventLastHitMs[ 32 ];
+static const S32 kRaceEventRecentHits	= 64;
+static U32		s_RaceEventRecentHits[ kRaceEventRecentHits ];	// power-up id and hit vehicle already written
+static S32		s_RaceEventRecentHitNext = 0;
 
 static const char* RaceEventName( const char* const* pNames, const S32 count, const S32 value )
 {
@@ -132,6 +139,60 @@ static bool GetRaceEventsPath( char (&path)[ MAX_PATH ] )
 		sprintf_s( path, "%s\\Bizarre Creations\\Blur\\race_events.jsonl", appData );
 	}
 	return true;
+}
+
+// BLUR_RACE_EVENTS_UDP=host:port also sends every event line (without the line break) as one UDP datagram the
+// moment it happens, for live use such as room lights. The host can be a name, an address or a broadcast address
+// (e.g. 192.168.1.255). Independent of BLUR_RACE_EVENTS; read once per run.
+static void SendRaceEventUdp( const char* pText, const size_t length )
+{
+	static bool				s_Initialised = false;
+	static SOCKET			s_Socket = INVALID_SOCKET;
+	static sockaddr_storage	s_Address;
+	static int				s_AddressLength = 0;
+
+	if ( !s_Initialised )
+	{
+		s_Initialised = true;
+
+		const char* pSetting = getenv( "BLUR_RACE_EVENTS_UDP" );
+		if ( !pSetting || !pSetting[ 0 ] )
+			return;
+
+		char host[ 256 ];
+		strcpy_s( host, pSetting );
+		char* pPort = strrchr( host, ':' );
+		if ( !pPort )
+			return;
+		*pPort++ = '\0';
+
+		WSADATA wsaData;
+		if ( WSAStartup( MAKEWORD( 2, 2 ), &wsaData ) != 0 )
+			return;
+
+		addrinfo hints;
+		memset( &hints, 0, sizeof( hints ) );
+		hints.ai_family		= AF_INET;
+		hints.ai_socktype	= SOCK_DGRAM;
+		hints.ai_protocol	= IPPROTO_UDP;
+
+		addrinfo* pResult = NULL;
+		if ( getaddrinfo( host, pPort, &hints, &pResult ) != 0 || !pResult )
+			return;
+		memcpy( &s_Address, pResult->ai_addr, pResult->ai_addrlen );
+		s_AddressLength = (int)pResult->ai_addrlen;
+		freeaddrinfo( pResult );
+
+		s_Socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+		if ( s_Socket != INVALID_SOCKET )
+		{
+			BOOL broadcast = TRUE;
+			setsockopt( s_Socket, SOL_SOCKET, SO_BROADCAST, (const char*)&broadcast, sizeof( broadcast ) );
+		}
+	}
+
+	if ( s_Socket != INVALID_SOCKET )
+		sendto( s_Socket, pText, (int)length, 0, (const sockaddr*)&s_Address, s_AddressLength );
 }
 
 static bool RaceEventsActive()
@@ -208,7 +269,10 @@ public:
 		BeginObject( pKey );
 		Int( "index", vehicleIndex );
 		if ( vehicleIndex >= 0 && vehicleIndex < (S32)levelState.mNumCars )
+		{
+			Int( "id", levelState.mCars[ vehicleIndex ].mNetJoinId );	// the same on every PC, unlike the index
 			WideStr( "name", levelState.mCars[ vehicleIndex ].mNameAboveCar.Chars() );
+		}
 		EndObject();
 	}
 
@@ -229,8 +293,13 @@ public:
 	{
 		Append( "}\n" );
 
+		if ( m_Overflow )
+			return;
+
+		SendRaceEventUdp( m_Text, m_Length - 1 );
+
 		char path[ MAX_PATH ];
-		if ( m_Overflow || !GetRaceEventsPath( path ) )
+		if ( !GetRaceEventsPath( path ) )
 			return;
 
 		FILE* pFile = NULL;
@@ -284,6 +353,9 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	s_RaceEventStartMs = GetTickCount64();
 	s_RaceEventFinishedMask = 0;
 	s_RaceEventFinishOrder = 0;
+	memset( s_RaceEventLaps, 0, sizeof( s_RaceEventLaps ) );
+	memset( s_RaceEventLastHitBy, 0xff, sizeof( s_RaceEventLastHitBy ) );
+	memset( s_RaceEventRecentHits, 0xff, sizeof( s_RaceEventRecentHits ) );
 
 	if ( !RaceEventsActive() )
 		return;
@@ -313,14 +385,16 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	}
 }
 
-void C_GameLoggingManager::RaceEventLap( const U8 vehicleIndex, const S32 lap, const F32 lapTime )
+// Any car crossing the start/finish line to complete a lap ("lap" counts its completed laps this race). The race
+// logic tracks the line for every car on every PC.
+void C_GameLoggingManager::RaceEventLap( const U8 vehicleIndex, const F32 lapTime )
 {
-	if ( !RaceEventsActive() )
+	if ( !RaceEventsActive() || vehicleIndex >= 32 || lapTime <= 1.0f )	// not a lap: the grid crossing at the start
 		return;
 
 	C_RaceEventLine line( "lap" );
 	line.Player( "player", vehicleIndex );
-	line.Int( "lap", lap );
+	line.Int( "lap", ++s_RaceEventLaps[ vehicleIndex ] );
 	line.Float( "lap_time", lapTime );
 	line.Write();
 }
@@ -336,10 +410,27 @@ void C_GameLoggingManager::RaceEventOvertake( const U8 overtakerIndex, const U8 
 	line.Write();
 }
 
-void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level )
+// A power-up hitting any car, reported by the hit car's damage component (local cars and the network copies of
+// remote cars both get the hit). One event per power-up and hit car.
+void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level, const U32 pickupId )
 {
-	if ( !RaceEventsActive() )
+	if ( !RaceEventsActive() || hitIndex >= 32 )
 		return;
+
+	const U32 key = ( pickupId << 5 ) ^ hitIndex;
+	for ( S32 i = 0; i < kRaceEventRecentHits; i++ )
+	{
+		if ( s_RaceEventRecentHits[ i ] == key )
+			return;
+	}
+	s_RaceEventRecentHits[ s_RaceEventRecentHitNext ] = key;
+	s_RaceEventRecentHitNext = ( s_RaceEventRecentHitNext + 1 ) % kRaceEventRecentHits;
+
+	if ( firingIndex < 32 && firingIndex != hitIndex )
+	{
+		s_RaceEventLastHitBy[ hitIndex ] = firingIndex;
+		s_RaceEventLastHitMs[ hitIndex ] = GetTickCount64();
+	}
 
 	C_RaceEventLine line( "powerup_hit" );
 	line.Player( "player", firingIndex );
@@ -349,15 +440,28 @@ void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 h
 	line.Write();
 }
 
-void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex )
+// A local car's wreck comes with the attacker the game credits ("by": "attacker") or none ("self"). A remote car's
+// wreck is only seen as its health running out, so it is credited to the last power-up hit within 5 seconds
+// ("last_hit") or to nobody ("unknown").
+void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote )
 {
-	if ( !RaceEventsActive() )
+	if ( !RaceEventsActive() || wreckedIndex >= 32 )
 		return;
 
+	S32 attacker = attackerIndex;
+	const char* pBy = ( attacker >= 0 ) ? "attacker" : "self";
+	if ( remote )
+	{
+		const bool recent = s_RaceEventLastHitBy[ wreckedIndex ] >= 0 && GetTickCount64() - s_RaceEventLastHitMs[ wreckedIndex ] <= 5000;
+		attacker = recent ? s_RaceEventLastHitBy[ wreckedIndex ] : -1;
+		pBy = recent ? "last_hit" : "unknown";
+	}
+
 	C_RaceEventLine line( "wreck" );
-	if ( attackerIndex >= 0 )
-		line.Player( "player", attackerIndex );
+	if ( attacker >= 0 )
+		line.Player( "player", attacker );
 	line.Player( "wrecked", wreckedIndex );
+	line.Str( "by", pBy );
 	line.Write();
 }
 

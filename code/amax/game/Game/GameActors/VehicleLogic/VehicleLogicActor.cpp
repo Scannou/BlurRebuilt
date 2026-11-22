@@ -64,6 +64,7 @@
 #include <Game\GameActors\Components\GameComponents.h>
 
 #include <GameLogic\GameData\GameData.h>
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] race events
 #include <algorithm>
 
 #ifndef CFG_GOLD
@@ -356,6 +357,11 @@ void C_VehicleLogicActor::PreUpdate()
 					{
 						C_VehicleOvertakeMsg overtakeMsg( mVehicleIndex, i );
 						overtakeMsg.mOvertakerRacePosition=mPositionInfo.mRacePosition;
+
+					#if defined ( PLATFORM_PC )
+						// [Blur2PC] race events: every car's logic actor checks its own passes, so this covers all players
+						C_GameLoggingManager::Instance().RaceEventOvertake( mVehicleIndex, (U8)i );
+					#endif
 
 						GetActorList()->SendMessageToActor( GetHandle(), &overtakeMsg);
 						GetActorList()->SendMessageToActor( otherVeh->GetHandle(), &overtakeMsg);

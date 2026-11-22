@@ -83,10 +83,10 @@ public:
 #if defined ( PLATFORM_PC )
 	// [Blur2PC] Not retail: race events of LAN and online races as JSON lines; see GameLoggingManager.cpp.
 	void RaceEventRaceStart();
-	void RaceEventLap( const U8 vehicleIndex, const S32 lap, const F32 lapTime );
+	void RaceEventLap( const U8 vehicleIndex, const F32 lapTime );
 	void RaceEventOvertake( const U8 overtakerIndex, const U8 overtakenIndex );
-	void RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level );
-	void RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex );
+	void RaceEventPowerupHit( const U8 firingIndex, const U8 hitIndex, const S32 pickupType, const S32 level, const U32 pickupId );
+	void RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote );
 	void RaceEventFinish( const U8 vehicleIndex, const S32 vehicleState, const F32 raceTime );
 	void RaceEventResults();
 #endif

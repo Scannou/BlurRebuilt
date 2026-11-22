@@ -17,6 +17,7 @@
 #include <Game/Game.h>
 #include <GameLogic/Layers/RaceBookLayer.h>
 #include <GameLogic/Layers/AmaxWorldLayer.h>
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] race events
 
 namespace Components
 {
@@ -62,6 +63,9 @@ void C_VehicleComponent_MP_Network_Damage::SetCurrentHealth(int p_Health)
 	{
 		pLogicActor->GetGraphicalActor(mVehicleIndex)->PlayWreckedEffect();
 		mpMultiplayerAbilities->SetAbilityFiring(UI::E_MultiplayerVehicleAbilities_Scrambler, false);
+	#if defined ( PLATFORM_PC )
+		::Game::C_GameLoggingManager::Instance().RaceEventWreck(-1, mVehicleIndex, true);	// [Blur2PC] race events: a remote car was wrecked
+	#endif
 	}
 
 	mLastKnownHealthLevel = pLogicActor->GetCurrentHealthLevel();
@@ -160,7 +164,13 @@ bool C_VehicleComponent_MP_Network_Damage::OnMessage(const Messaging::C_MessageB
 		{
 			const C_VehicleLogicMsg_HitByPerkMsg* msg = Messaging::MessageCast< C_VehicleLogicMsg_HitByPerkMsg >(pMessage);
 			if( mVehicleIndex == msg->mVehicleIndex )
+			{
+			#if defined ( PLATFORM_PC )
+				// [Blur2PC] race events: a remote car was hit as simulated on this PC
+				::Game::C_GameLoggingManager::Instance().RaceEventPowerupHit(msg->mFiringVehicleIndex, msg->mVehicleIndex, msg->mPickupType, msg->mLevel, msg->mUniqueID);
+			#endif
 				HandlePickupDamage(msg->mPickupHitType, msg->mPickupType);
+			}
 			return true;
 		}
 	}
