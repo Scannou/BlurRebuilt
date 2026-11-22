@@ -83,7 +83,7 @@ These Windows environment variables are available if you want to adjust things:
 
 ## Race events
 
-LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `result` (every player's position and statistics) and `race_end`. Each PC writes what it sees, so events about your own car are always complete.
+LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Each PC writes what it sees, so events about your own car are always complete.
 
 ## Intro videos
 

@@ -71,6 +71,7 @@
 #include <ui/Game/Profiles/ProfileInterface.h>
 
 #include <AI\AI_Amax.h>
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] race events
 
 Debug::Logger &g_MultiplayerLog(Debug::GetLogger("Amax.Multiplayer"));
 Debug::Logger &g_debugNetMessageNumLog(Debug::GetLogger("Amax.Multiplayer.PickupMpSync.NetMessageNums"));
@@ -1203,6 +1204,11 @@ void C_RaceModeMultiplayer::VehicleFinished(const U8 p_Index, Game::E_VEHICLE_ST
 			VehicleData(p_Index).m_State = p_FinishType;
 		}
 	}
+
+#if defined ( PLATFORM_PC )
+	// [Blur2PC] race events: a local car's results were just filled in, a remote car's just arrived
+	C_GameLoggingManager::Instance().RaceEventFinish(p_Index, p_FinishType, VehicleData(p_Index).m_Statistics[UI::E_MultiplayerStat_RaceTime]);
+#endif
 
 	bool finished = false;
 	switch(p_FinishType)
