@@ -530,12 +530,6 @@ namespace Components
 
 					const ::Game::Actors::C_VehicleOvertakeMsg* pMsg = Messaging::MessageCast< ::Game::Actors::C_VehicleOvertakeMsg >(pMessage);
 
-				#if defined ( PLATFORM_PC )
-					// [Blur2PC] race events
-					if( pMsg->mOvertakerVehicleIndex == mVehicleIndex )
-						::Game::C_GameLoggingManager::Instance().RaceEventOvertake(pMsg->mOvertakerVehicleIndex, pMsg->mOvertakeeVehicleIndex);
-				#endif
-
 					if( pMsg->mOvertakerVehicleIndex == mVehicleIndex )
 						SetVehicleOvertakerStatistics(pMsg->mOvertakerVehicleIndex, pMsg->mOvertakeeVehicleIndex);
 					else if( pMsg->mOvertakeeVehicleIndex == mVehicleIndex )
@@ -808,11 +802,6 @@ namespace Components
 
 					if(	vehActor->mLapsInfo.mCurrentLap <= 1)
 						break;
-
-				#if defined ( PLATFORM_PC )
-					// [Blur2PC] race events: the lap just completed
-					::Game::C_GameLoggingManager::Instance().RaceEventLap(mVehicleIndex, vehActor->mLapsInfo.mCurrentLap - 1, pMsg->mTime);
-				#endif
 
 					if( pMsg->mTime < vehActor->mStatistics.mFastestLapTime || vehActor->mLapsInfo.mCurrentLap == 2)
 						vehActor->mStatistics.mFastestLapTime = pMsg->mTime;

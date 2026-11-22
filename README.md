@@ -80,10 +80,11 @@ These Windows environment variables are available if you want to adjust things:
 | `BLUR_DX11_HDR_PAPER_WHITE_NITS=200` | Set the brightness of menus and everyday surfaces |
 | `BLUR2PC_FRAMELIMIT=120` | Cap the frame rate |
 | `BLUR_RACE_EVENTS=off` | Stop writing the race events file (or set a file path to write it somewhere else) |
+| `BLUR_RACE_EVENTS_UDP=192.168.1.50:5555` | Also send every race event as a UDP packet to that address and port as it happens (a broadcast address works too) |
 
 ## Race events
 
-LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Each PC writes what it sees, so events about your own car are always complete.
+LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Players are identified by `id`, which is the same on every PC (the `index` differs between PCs). Laps and overtakes are logged for every player; power-up hits and wrecks only for the PC's own car so far.
 
 ## Intro videos
 
