@@ -12,7 +12,9 @@
 #include <system/debug/Blur2PCAutomation.h>
 #include <limits>
 #include <memory>
+#include <string>			// [Blur2PC] refraction trace
 #include <unordered_map>
+#include <unordered_set>	// [Blur2PC] refraction trace
 #include <vector>
 #include <wrl/client.h>
 
@@ -189,10 +191,22 @@ void DescribeTexture(ID3D11Resource* resource, char* text, size_t size)
         sprintf_s(text, size, "%p (not 2D)", resource);
 }
 
+// Each distinct effect file / technique once, so a log shows what draws a screen (e.g. the menu's glass boxes).
+void TraceEffectUse()
+{
+    static std::unordered_set<std::string> seen;
+    if (seen.size() >= 600) return;
+    char key[256];
+    sprintf_s(key, "%.120s / %.80s pass=%d", g_currentFile ? g_currentFile : "", g_currentTechnique ? g_currentTechnique : "", g_currentIndex);
+    if (seen.insert(key).second)
+        Blur2PCAutomation::LogF("DX11 effect %s", key);
+}
+
+// Each distinct refraction setup (pass, target and bound textures) once, up to a limit.
 void TraceRefractPass(ID3D11DeviceContext* context)
 {
-    static unsigned traced = 0;
-    if (traced++ >= 48) return;
+    static std::unordered_set<std::string> seen;
+    if (seen.size() >= 120) return;
 
     ID3D11RenderTargetView* targets[1] = {};
     ID3D11DepthStencilView* depth = nullptr;
@@ -201,8 +215,13 @@ void TraceRefractPass(ID3D11DeviceContext* context)
     if (targets[0]) targets[0]->GetResource(&target);
     char targetText[128];
     DescribeTexture(target.Get(), targetText, sizeof(targetText));
-    Blur2PCAutomation::LogF("DX11 refract %s / %s pass=%d target=%s", g_currentFile ? g_currentFile : "",
+
+    std::vector<std::string> lines;
+    std::string signature;
+    char line[384];
+    sprintf_s(line, "DX11 refract %.120s / %.60s pass=%d target=%s", g_currentFile ? g_currentFile : "",
         g_currentTechnique ? g_currentTechnique : "", g_currentIndex, targetText);
+    lines.push_back(line);
 
     ID3D11ShaderResourceView* views[16] = {};
     context->PSGetShaderResources(0, 16, views);
@@ -215,13 +234,20 @@ void TraceRefractPass(ID3D11DeviceContext* context)
         views[slot]->GetDesc(&viewDesc);
         char text[128];
         DescribeTexture(resource.Get(), text, sizeof(text));
-        Blur2PCAutomation::LogF("DX11 refract   t%u view=%u dim=%u %s%s", slot, static_cast<unsigned>(viewDesc.Format),
+        sprintf_s(line, "DX11 refract   t%u view=%u dim=%u %s%s", slot, static_cast<unsigned>(viewDesc.Format),
             static_cast<unsigned>(viewDesc.ViewDimension), text, resource.Get() == target.Get() ? " SAME-AS-TARGET" : "");
+        lines.push_back(line);
         views[slot]->Release();
     }
 
     if (targets[0]) targets[0]->Release();
     if (depth) depth->Release();
+
+    for (const std::string& text : lines)
+        signature += text;
+    if (seen.insert(signature).second)
+        for (const std::string& text : lines)
+            Blur2PCAutomation::LogF("%s", text.c_str());
 }
 
 bool FlushPendingPass()
@@ -235,8 +261,12 @@ bool FlushPendingPass()
         sprintf_s(g_fx11LastError, "%.80s / %.80s pass=%d", g_currentEffect ? g_currentEffect : "",
             g_currentTechnique ? g_currentTechnique : "", g_currentIndex);
     static const bool traceRefract = getenv("BLUR2PC_AUTOMATION") != nullptr;
-    if (traceRefract && g_currentFile && strstr(g_currentFile, "efract"))
-        TraceRefractPass(context);
+    if (traceRefract)
+    {
+        TraceEffectUse();
+        if (g_currentFile && strstr(g_currentFile, "efract"))
+            TraceRefractPass(context);
+    }
     return true;
 }
 
