@@ -353,6 +353,14 @@ private:
 #endif
 };
 
+#if defined ( PLATFORM_PC )
+// [Blur2PC] Not retail: BlurRebuilt's own files beside the profile save, and its BlurRebuilt.ini settings
+// ("key=value" lines); see SaveSystem_pc.cpp.
+void	GetBlurRebuiltFilePath( const char* pFileName, char* pPath, const size_t uSize );
+bool	GetBlurRebuiltSetting( const char* pKey, char* pValue, const size_t uSize );
+void	SetBlurRebuiltSetting( const char* pKey, const char* pValue );
+#endif
+
 }; //namespace UI
 
 #endif /* SAVESYSTEM_H */

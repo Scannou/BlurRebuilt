@@ -39,6 +39,142 @@ static void GetUserDataRoot( char* pRoot, const size_t uSize )
 		Sys::C_FileSystem::Instance().CreateDirectory( pRoot );
 }
 
+// [Blur2PC] Not retail: BlurRebuilt keeps its own files in the same folder as the profile save (retail ignores
+// them). BlurRebuilt.ini holds its settings as "key=value" lines; keys are not case sensitive, spaces around keys
+// and values are ignored, and lines starting with ';' or '#' are comments.
+static const U32 kBlurRebuiltSettingsMaxLines	= 64;
+static const U32 kBlurRebuiltSettingsLineSize	= 512;
+
+void GetBlurRebuiltFilePath( const char* pFileName, char* pPath, const size_t uSize )
+{
+	GetUserDataRoot( pPath, uSize );
+	strcat_s( pPath, uSize, pFileName );
+}
+
+// Splits a settings line into its trimmed key and value; false for comments, blank lines and lines without '='.
+static bool ParseBlurRebuiltSetting( char* pLine, char*& pKey, char*& pValue )
+{
+	pLine[ strcspn( pLine, "\r\n" ) ] = '\0';
+
+	pKey = pLine + strspn( pLine, " \t" );
+	if ( *pKey == ';' || *pKey == '#' )
+		return false;
+
+	char* pEquals = strchr( pKey, '=' );
+	if ( !pEquals || pEquals == pKey )
+		return false;
+
+	char* pKeyEnd = pEquals;
+	while ( pKeyEnd > pKey && ( pKeyEnd[ -1 ] == ' ' || pKeyEnd[ -1 ] == '\t' ) )
+		pKeyEnd--;
+	*pKeyEnd = '\0';
+
+	pValue = pEquals + 1;
+	pValue += strspn( pValue, " \t" );
+	size_t length = strlen( pValue );
+	while ( length > 0 && ( pValue[ length - 1 ] == ' ' || pValue[ length - 1 ] == '\t' ) )
+		pValue[ --length ] = '\0';
+
+	return true;
+}
+
+// Written when there is no BlurRebuilt.ini yet, so the settings can be found; every line is a comment.
+static void WriteBlurRebuiltSettingsTemplate( const char* pPath )
+{
+	FILE* pFile = NULL;
+	if ( fopen_s( &pFile, pPath, "w" ) != 0 || !pFile )
+		return;
+
+	fputs(	"; Blur Rebuilt settings: remove the ; in front of a line to use it.\n"
+			";\n"
+			"; Your name in LAN and offline games (up to 15 plain characters)\n"
+			";player_name=YourName\n"
+			";\n"
+			"; Speed on the race map: kmh or mph (also in Options)\n"
+			";speed_units=kmh\n"
+			";\n"
+			"; Race events file: off, or a full file path (default: race_events.jsonl in this folder)\n"
+			";race_events_file=off\n"
+			";\n"
+			"; Also send every race event as a UDP packet to host:port (a name, an address or a broadcast address)\n"
+			";race_events_udp=lights.local:5555\n", pFile );
+	fclose( pFile );
+}
+
+bool GetBlurRebuiltSetting( const char* pKey, char* pValue, const size_t uSize )
+{
+	char path[ MAX_PATH ];
+	GetBlurRebuiltFilePath( "BlurRebuilt.ini", path, MAX_PATH );
+
+	FILE* pFile = NULL;
+	if ( fopen_s( &pFile, path, "r" ) != 0 || !pFile )
+	{
+		if ( GetFileAttributesA( path ) == INVALID_FILE_ATTRIBUTES )
+			WriteBlurRebuiltSettingsTemplate( path );
+		return false;
+	}
+
+	bool found = false;
+	char line[ kBlurRebuiltSettingsLineSize ];
+	while ( !found && fgets( line, sizeof( line ), pFile ) )
+	{
+		char* pLineKey;
+		char* pLineValue;
+		if ( ParseBlurRebuiltSetting( line, pLineKey, pLineValue ) && _stricmp( pLineKey, pKey ) == 0 )
+		{
+			strncpy_s( pValue, uSize, pLineValue, _TRUNCATE );
+			found = true;
+		}
+	}
+	fclose( pFile );
+	return found;
+}
+
+// Replaces the key's line (or adds it), keeping every other line, comment and their order.
+void SetBlurRebuiltSetting( const char* pKey, const char* pValue )
+{
+	char path[ MAX_PATH ];
+	GetBlurRebuiltFilePath( "BlurRebuilt.ini", path, MAX_PATH );
+
+	static char s_Lines[ kBlurRebuiltSettingsMaxLines ][ kBlurRebuiltSettingsLineSize ];
+	U32 numLines = 0;
+	bool replaced = false;
+
+	FILE* pFile = NULL;
+	if ( fopen_s( &pFile, path, "r" ) == 0 && pFile )
+	{
+		while ( numLines < kBlurRebuiltSettingsMaxLines && fgets( s_Lines[ numLines ], kBlurRebuiltSettingsLineSize, pFile ) )
+		{
+			char* pLine = s_Lines[ numLines ];
+			pLine[ strcspn( pLine, "\r\n" ) ] = '\0';
+
+			char parsed[ kBlurRebuiltSettingsLineSize ];
+			strcpy_s( parsed, pLine );
+			char* pLineKey;
+			char* pLineValue;
+			if ( ParseBlurRebuiltSetting( parsed, pLineKey, pLineValue ) && _stricmp( pLineKey, pKey ) == 0 )
+			{
+				if ( replaced )
+					continue;	// drop repeats of the key
+				sprintf_s( pLine, kBlurRebuiltSettingsLineSize, "%s=%s", pKey, pValue );
+				replaced = true;
+			}
+			numLines++;
+		}
+		fclose( pFile );
+	}
+
+	if ( !replaced && numLines < kBlurRebuiltSettingsMaxLines )
+		sprintf_s( s_Lines[ numLines++ ], kBlurRebuiltSettingsLineSize, "%s=%s", pKey, pValue );
+
+	if ( fopen_s( &pFile, path, "w" ) == 0 && pFile )
+	{
+		for ( U32 i = 0; i < numLines; i++ )
+			fprintf( pFile, "%s\n", s_Lines[ i ] );
+		fclose( pFile );
+	}
+}
+
 // -----------------
 // C_AsyncLoadThread
 // -----------------

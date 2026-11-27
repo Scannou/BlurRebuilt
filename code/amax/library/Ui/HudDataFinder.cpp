@@ -1,7 +1,7 @@
 #include "Stdafx.h"
 #include <Game/GameActors/VehicleLogic/VehicleLogicActor.h>	// [Blur2PC]
 #if defined ( PLATFORM_PC )
-#include <shlobj.h>	// [Blur2PC] SHGetFolderPathA (BlurRebuilt.ini)
+#include <ui/Game/SaveSystem/SaveSystem.h>	// [Blur2PC] BlurRebuilt.ini
 #endif
 
 #include "HudDataFinder.h"
@@ -63,45 +63,15 @@ void C_HudDataFinder::Init()
 
 #if defined ( PLATFORM_PC )
 // [Blur2PC] Not retail: the Options menu can show speeds in km/h instead of mph. The choice is kept as
-// "speed_units=kmh" or "speed_units=mph" in BlurRebuilt.ini in the profile save folder (%APPDATA%\Bizarre
-// Creations\Blur\, or BLUR2PC_SAVE_ROOT as in SaveSystem_pc.cpp), which retail ignores. Default: mph.
-static S32 s_sSpeedInKmh = -1;	// -1 until the file has been read
-
-static void GetBlurRebuiltIniPath( char (&path)[ MAX_PATH ] )
-{
-	if ( const char* pOverride = getenv( "BLUR2PC_SAVE_ROOT" ) )
-	{
-		sprintf_s( path, "%s\\BlurRebuilt.ini", pOverride );
-	}
-	else
-	{
-		char appData[ MAX_PATH ] = { 0 };
-		SHGetFolderPathA( NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, appData );
-		sprintf_s( path, "%s\\Bizarre Creations\\Blur\\BlurRebuilt.ini", appData );
-	}
-}
+// "speed_units=kmh" or "speed_units=mph" in BlurRebuilt.ini (SaveSystem_pc.cpp). Default: mph.
+static S32 s_sSpeedInKmh = -1;	// -1 until the setting has been read
 
 bool C_HudDataFinder::SpeedInKmh()
 {
 	if ( s_sSpeedInKmh < 0 )
 	{
-		s_sSpeedInKmh = 0;
-
-		char path[ MAX_PATH ];
-		GetBlurRebuiltIniPath( path );
-
-		FILE* pFile = NULL;
-		if ( fopen_s( &pFile, path, "r" ) == 0 && pFile )
-		{
-			char line[ 128 ];
-			while ( fgets( line, sizeof( line ), pFile ) )
-			{
-				if ( _strnicmp( line, "speed_units=kmh", 15 ) == 0 )
-					s_sSpeedInKmh = 1;
-			}
-			fclose( pFile );
-		}
-
+		char value[ 16 ];
+		s_sSpeedInKmh = ( GetBlurRebuiltSetting( "speed_units", value, sizeof( value ) ) && _stricmp( value, "kmh" ) == 0 ) ? 1 : 0;
 		C_TextStringID::SetSpeedInKmh( s_sSpeedInKmh == 1 );
 	}
 
@@ -112,16 +82,7 @@ void C_HudDataFinder::SetSpeedInKmh( const bool kmh )
 {
 	s_sSpeedInKmh = kmh ? 1 : 0;
 	C_TextStringID::SetSpeedInKmh( kmh );
-
-	char path[ MAX_PATH ];
-	GetBlurRebuiltIniPath( path );
-
-	FILE* pFile = NULL;
-	if ( fopen_s( &pFile, path, "w" ) == 0 && pFile )
-	{
-		fprintf( pFile, "speed_units=%s\n", kmh ? "kmh" : "mph" );
-		fclose( pFile );
-	}
+	SetBlurRebuiltSetting( "speed_units", kmh ? "kmh" : "mph" );
 }
 
 // The mph text with its "MPH" unit replaced by "KM/H"; unchanged when it has no such unit.

@@ -38,7 +38,7 @@
 #include <Network/Player/NetPlayerManager.h>
 #include <Network/Player/NetPlayerStates.h>
 #include <float.h>
-#include <shlobj.h>
+#include <ui/Game/SaveSystem/SaveSystem.h>
 #include <ws2tcpip.h>
 #endif
 
@@ -120,84 +120,125 @@ static const char* RaceEventName( const char* const* pNames, const S32 count, co
 	return ( value >= 0 && value < count ) ? pNames[ value ] : "unknown";
 }
 
-static bool GetRaceEventsPath( char (&path)[ MAX_PATH ] )
-{
-	if ( const char* pSetting = getenv( "BLUR_RACE_EVENTS" ) )
-	{
-		if ( _stricmp( pSetting, "off" ) == 0 || strcmp( pSetting, "0" ) == 0 )
-			return false;
-		if ( pSetting[ 0 ] )
-		{
-			strcpy_s( path, pSetting );
-			return true;
-		}
-	}
+// Where the events go, read at every race start so BlurRebuilt.ini can be changed between races. The file comes
+// from "race_events_file" in BlurRebuilt.ini, else BLUR_RACE_EVENTS: "off" (or "0") stops it, any other value is
+// the path; default race_events.jsonl beside the profile save. "race_events_udp" (else BLUR_RACE_EVENTS_UDP) set to
+// host:port also sends every event line, without the line break, as one UDP datagram the moment it happens, for
+// live use such as room lights. The host can be a name, an address or a broadcast address (e.g. 192.168.1.255).
+static bool		s_RaceEventsFileOn = true;
+static char		s_RaceEventsPath[ MAX_PATH ] = "";
 
-	if ( const char* pOverride = getenv( "BLUR2PC_SAVE_ROOT" ) )
-	{
-		sprintf_s( path, "%s\\race_events.jsonl", pOverride );
-	}
-	else
-	{
-		char appData[ MAX_PATH ] = { 0 };
-		SHGetFolderPathA( NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, appData );
-		sprintf_s( path, "%s\\Bizarre Creations\\Blur\\race_events.jsonl", appData );
-	}
+static char				s_RaceEventsUdpTarget[ 256 ] = "";
+static SOCKET			s_RaceEventsUdpSocket = INVALID_SOCKET;
+static sockaddr_in		s_RaceEventsUdpAddress;
+static volatile LONG	s_RaceEventsUdpReady = 0;		// 1 once s_RaceEventsUdpAddress holds the resolved target
+static volatile LONG	s_RaceEventsUdpGeneration = 0;	// bumped when the target changes; stale lookups are dropped
+
+static bool GetRaceEventsSetting( const char* pIniKey, const char* pEnvName, char* pValue, const size_t uSize )
+{
+	if ( UI::GetBlurRebuiltSetting( pIniKey, pValue, uSize ) )
+		return true;
+
+	const char* pEnv = getenv( pEnvName );
+	if ( !pEnv )
+		return false;
+	strncpy_s( pValue, uSize, pEnv, _TRUNCATE );
 	return true;
 }
 
-// BLUR_RACE_EVENTS_UDP=host:port also sends every event line (without the line break) as one UDP datagram the
-// moment it happens, for live use such as room lights. The host can be a name, an address or a broadcast address
-// (e.g. 192.168.1.255). Independent of BLUR_RACE_EVENTS; read once per run.
-static void SendRaceEventUdp( const char* pText, const size_t length )
+struct RaceEventsUdpLookup
 {
-	static bool				s_Initialised = false;
-	static SOCKET			s_Socket = INVALID_SOCKET;
-	static sockaddr_storage	s_Address;
-	static int				s_AddressLength = 0;
+	char	mHost[ 256 ];
+	char	mPort[ 16 ];
+	LONG	mGeneration;
+};
 
-	if ( !s_Initialised )
+// Name lookups can take seconds, so they run off the game thread; events are only sent once it has finished.
+static DWORD WINAPI ResolveRaceEventsUdpTarget( LPVOID pParam )
+{
+	RaceEventsUdpLookup* pLookup = (RaceEventsUdpLookup*)pParam;
+
+	addrinfo hints;
+	memset( &hints, 0, sizeof( hints ) );
+	hints.ai_family		= AF_INET;
+	hints.ai_socktype	= SOCK_DGRAM;
+	hints.ai_protocol	= IPPROTO_UDP;
+
+	addrinfo* pResult = NULL;
+	if ( getaddrinfo( pLookup->mHost, pLookup->mPort, &hints, &pResult ) == 0 && pResult )
 	{
-		s_Initialised = true;
+		if ( pLookup->mGeneration == s_RaceEventsUdpGeneration && pResult->ai_addrlen <= sizeof( s_RaceEventsUdpAddress ) )
+		{
+			memcpy( &s_RaceEventsUdpAddress, pResult->ai_addr, pResult->ai_addrlen );
+			InterlockedExchange( &s_RaceEventsUdpReady, 1 );
+		}
+		freeaddrinfo( pResult );
+	}
 
-		const char* pSetting = getenv( "BLUR_RACE_EVENTS_UDP" );
-		if ( !pSetting || !pSetting[ 0 ] )
-			return;
+	delete pLookup;
+	return 0;
+}
 
-		char host[ 256 ];
-		strcpy_s( host, pSetting );
-		char* pPort = strrchr( host, ':' );
-		if ( !pPort )
-			return;
-		*pPort++ = '\0';
+static void UpdateRaceEventsOutput()
+{
+	char value[ MAX_PATH ] = "";
+	s_RaceEventsFileOn = true;
+	if ( GetRaceEventsSetting( "race_events_file", "BLUR_RACE_EVENTS", value, sizeof( value ) ) && value[ 0 ] )
+	{
+		if ( _stricmp( value, "off" ) == 0 || strcmp( value, "0" ) == 0 )
+			s_RaceEventsFileOn = false;
+		else
+			strcpy_s( s_RaceEventsPath, value );
+	}
+	else
+	{
+		UI::GetBlurRebuiltFilePath( "race_events.jsonl", s_RaceEventsPath, sizeof( s_RaceEventsPath ) );
+	}
 
+	char target[ 256 ] = "";
+	GetRaceEventsSetting( "race_events_udp", "BLUR_RACE_EVENTS_UDP", target, sizeof( target ) );
+	if ( strcmp( target, s_RaceEventsUdpTarget ) == 0 )
+		return;
+
+	strcpy_s( s_RaceEventsUdpTarget, target );
+	InterlockedExchange( &s_RaceEventsUdpReady, 0 );
+	const LONG generation = InterlockedIncrement( &s_RaceEventsUdpGeneration );
+
+	char* pPort = strrchr( target, ':' );
+	if ( !pPort || pPort == target || !pPort[ 1 ] )
+		return;
+	*pPort++ = '\0';
+
+	if ( s_RaceEventsUdpSocket == INVALID_SOCKET )
+	{
 		WSADATA wsaData;
 		if ( WSAStartup( MAKEWORD( 2, 2 ), &wsaData ) != 0 )
 			return;
 
-		addrinfo hints;
-		memset( &hints, 0, sizeof( hints ) );
-		hints.ai_family		= AF_INET;
-		hints.ai_socktype	= SOCK_DGRAM;
-		hints.ai_protocol	= IPPROTO_UDP;
-
-		addrinfo* pResult = NULL;
-		if ( getaddrinfo( host, pPort, &hints, &pResult ) != 0 || !pResult )
+		s_RaceEventsUdpSocket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+		if ( s_RaceEventsUdpSocket == INVALID_SOCKET )
 			return;
-		memcpy( &s_Address, pResult->ai_addr, pResult->ai_addrlen );
-		s_AddressLength = (int)pResult->ai_addrlen;
-		freeaddrinfo( pResult );
 
-		s_Socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
-		if ( s_Socket != INVALID_SOCKET )
-		{
-			BOOL broadcast = TRUE;
-			setsockopt( s_Socket, SOL_SOCKET, SO_BROADCAST, (const char*)&broadcast, sizeof( broadcast ) );
-		}
+		BOOL broadcast = TRUE;
+		setsockopt( s_RaceEventsUdpSocket, SOL_SOCKET, SO_BROADCAST, (const char*)&broadcast, sizeof( broadcast ) );
 	}
 
-	if ( s_Socket != INVALID_SOCKET )
-		sendto( s_Socket, pText, (int)length, 0, (const sockaddr*)&s_Address, s_AddressLength );
+	RaceEventsUdpLookup* pLookup = new RaceEventsUdpLookup;
+	strcpy_s( pLookup->mHost, target );
+	strncpy_s( pLookup->mPort, pPort, _TRUNCATE );
+	pLookup->mGeneration = generation;
+
+	HANDLE thread = CreateThread( NULL, 0, ResolveRaceEventsUdpTarget, pLookup, 0, NULL );
+	if ( thread )
+		CloseHandle( thread );
+	else
+		delete pLookup;
+}
+
+static void SendRaceEventUdp( const char* pText, const size_t length )
+{
+	if ( s_RaceEventsUdpReady && s_RaceEventsUdpSocket != INVALID_SOCKET )
+		sendto( s_RaceEventsUdpSocket, pText, (int)length, 0, (const sockaddr*)&s_RaceEventsUdpAddress, sizeof( s_RaceEventsUdpAddress ) );
 }
 
 // Once this PC starts leaving the race (NetRace.EnterDisconnecting), every other car is dropped as "left race" on
@@ -321,12 +362,11 @@ public:
 
 		SendRaceEventUdp( m_Text, m_Length - 1 );
 
-		char path[ MAX_PATH ];
-		if ( !GetRaceEventsPath( path ) )
+		if ( !s_RaceEventsFileOn )
 			return;
 
 		FILE* pFile = NULL;
-		if ( fopen_s( &pFile, path, "ab" ) == 0 && pFile )
+		if ( fopen_s( &pFile, s_RaceEventsPath, "ab" ) == 0 && pFile )
 		{
 			fwrite( m_Text, 1, m_Length, pFile );
 			fclose( pFile );
@@ -374,6 +414,7 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	GetLocalTime( &now );
 	sprintf_s( s_RaceEventRaceId, "%04u%02u%02u-%02u%02u%02u", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond );
 	s_RaceEventStartMs = GetTickCount64();
+	UpdateRaceEventsOutput();
 	s_RaceEventFinishedMask = 0;
 	s_RaceEventFinishOrder = 0;
 	memset( s_RaceEventLaps, 0, sizeof( s_RaceEventLaps ) );

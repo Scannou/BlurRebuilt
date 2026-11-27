@@ -79,14 +79,25 @@ These Windows environment variables are available if you want to adjust things:
 | `BLUR_DX11_HDR_PEAK_NITS=1000` | Set your display's peak brightness manually |
 | `BLUR_DX11_HDR_PAPER_WHITE_NITS=200` | Set the brightness of menus and everyday surfaces |
 | `BLUR2PC_FRAMELIMIT=120` | Cap the frame rate |
-| `BLUR_RACE_EVENTS=off` | Stop writing the race events file (or set a file path to write it somewhere else) |
-| `BLUR_RACE_EVENTS_UDP=192.168.1.50:5555` | Also send every race event as a UDP packet to that address and port as it happens (a broadcast address works too) |
+
+### BlurRebuilt.ini
+
+Blur Rebuilt's own settings are in `%APPDATA%\Bizarre Creations\Blur\BlurRebuilt.ini`, next to your save. The game creates it on first start with every setting commented out; remove the `;` in front of a line to use it. Edit it while the game is closed; the race events settings are also picked up at the start of every race.
+
+| Setting | Effect |
+|---|---|
+| `player_name=YourName` | Your name in LAN and offline games (up to 15 plain ASCII characters) |
+| `speed_units=kmh` | Show speeds in km/h instead of mph (also in Options → Speed units) |
+| `race_events_file=off` | Stop writing the race events file, or give a full file path to write it somewhere else |
+| `race_events_udp=lights.local:5555` | Also send every race event as a UDP packet to that host and port as it happens. The host can be a name, an IP address or a broadcast address such as `192.168.1.255` |
+
+The environment variables `BLUR_RACE_EVENTS` and `BLUR_RACE_EVENTS_UDP` still work when the matching setting isn't in the file.
 
 ## Race events
 
 LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Players are identified by `id`, which is the same on every PC (the `index` differs between PCs). Laps, overtakes, power-up hits and wrecks are logged for every player. Each PC works these out from its own view of the race, so two PCs can differ slightly on close moments; `result` lines are the same everywhere. A wreck says who caused it in `by`: `attacker` and `self` come from the game, `last_hit` means another player's car was wrecked within 5 seconds of a power-up hit, `unknown` means no recent hit.
 
-Your name in LAN and offline games is your Windows user name (your Linux user name under Proton). To use a different name, put a `username.txt` file next to `BlurRebuilt.exe` with the name on its first line. Names can use up to 15 plain ASCII characters.
+Your name in LAN and offline games is your Windows user name (your Linux user name under Proton). To use a different name, set `player_name` in `BlurRebuilt.ini`, or put a `username.txt` file next to `BlurRebuilt.exe` with the name on its first line. Names can use up to 15 plain ASCII characters.
 
 ## Intro videos
 

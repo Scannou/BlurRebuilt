@@ -539,17 +539,21 @@ static bool SetCleanUserName(char (&name)[SYSTEM_PROFILE_NAME_LENGTH], const cha
 static S32 SetDefaultUserName(lua_State* pState)
 {
 #if defined ( PLATFORM_PC )
-	// [Blur2PC] Offline/LAN players were all named "Player". Use the first line of username.txt beside
-	// the exe, else the Windows user name (as retail is reported to; not verified against the retail
-	// exe), else "Player".
+	// [Blur2PC] Offline/LAN players were all named "Player". Use player_name from BlurRebuilt.ini
+	// (SaveSystem_pc.cpp), else the first line of username.txt beside the exe, else the Windows user name
+	// (as retail is reported to; not verified against the retail exe), else "Player".
 	char name[SYSTEM_PROFILE_NAME_LENGTH] = "Player";
 	bool named = false;
+
+	char setting[256] = { 0 };
+	if (UI::GetBlurRebuiltSetting("player_name", setting, sizeof(setting)))
+		named = SetCleanUserName(name, setting);
 
 	char path[MAX_PATH] = { 0 };
 	const DWORD pathLength = GetModuleFileNameA(NULL, path, MAX_PATH);
 	char* slash = (pathLength > 0 && pathLength < MAX_PATH) ? strrchr(path, '\\') : NULL;
 	FILE* pFile = NULL;
-	if (NULL != slash && strcpy_s(slash + 1, MAX_PATH - (slash + 1 - path), "username.txt") == 0 &&
+	if (!named && NULL != slash && strcpy_s(slash + 1, MAX_PATH - (slash + 1 - path), "username.txt") == 0 &&
 		fopen_s(&pFile, path, "rb") == 0 && NULL != pFile)
 	{
 		char line[256] = { 0 };
