@@ -93,6 +93,10 @@ Blur Rebuilt's own settings are in `%APPDATA%\Bizarre Creations\Blur\BlurRebuilt
 
 The environment variables `BLUR_RACE_EVENTS` and `BLUR_RACE_EVENTS_UDP` still work when the matching setting isn't in the file.
 
+## Racing alone on LAN
+
+A LAN host can start a race with nobody else in the lobby. If AI is off, the host races 3 medium AI opponents and the lobby's AI settings change to match (except in Motor Mash, which has no AI). Team games still need other players.
+
 ## Race events
 
 LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Players are identified by `id`, which is the same on every PC (the `index` differs between PCs). Laps, overtakes, power-up hits and wrecks are logged for every player. Each PC works these out from its own view of the race, so two PCs can differ slightly on close moments; `result` lines are the same everywhere. A wreck says who caused it in `by`: `attacker` and `self` come from the game, `last_hit` means another player's car was wrecked within 5 seconds of a power-up hit, `unknown` means no recent hit.

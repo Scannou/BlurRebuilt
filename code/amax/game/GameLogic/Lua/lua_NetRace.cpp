@@ -1874,7 +1874,10 @@ namespace Game
 										allVehiclesValid = false;
 								}
 
-								if (allIdle && allVehiclesValid && numRemote > 0 && !race.IsMigrating())
+								// [Blur2PC] Not retail: a LAN host may also race alone (MpLobby.lua adds AI), except in team games
+								const bool soloAllowed = !pLayer->GetGameModePtr()->IsOnline() && !raceSettings.m_Teams;
+
+								if (allIdle && allVehiclesValid && (numRemote > 0 || soloAllowed) && !race.IsMigrating())
 									canStart = true;
 							}
 						}
@@ -1917,6 +1920,27 @@ namespace Game
 		}
 
 		lua_pushnumber(pState, count);
+		return 1;
+	}
+
+	// [Blur2PC] Not retail: true while no other player has a race connection, so a LAN host starting alone can be
+	// given AI opponents (MpLobby.lua).
+	static S32 IsHostAlone(lua_State* pState)
+	{
+		bool alone = true;
+		RacerNet::C_NetServices& services = RacerNet::C_NetServices::Instance();
+		if (services.IsInitialised())
+		{
+			RacerNet::C_NetPlayerManager& mgr = services.PlayerManager();
+			for (U8 i=0; i<mgr.TotalSize(); i++)
+			{
+				RacerNet::C_NetPlayer* p = mgr.Index(i);
+				if (!p->LocalPlayer() && p->m_RaceConnection.IsActive())
+					alone = false;
+			}
+		}
+
+		lua_pushboolean(pState, alone);
 		return 1;
 	}
 
@@ -3049,6 +3073,7 @@ namespace Game
 
 		{"CanStartCustomRace",						CanStartCustomRace},					// if hosting, is it possible to actually start the race.
 		{"NumPlayersChoosingCar",					NumPlayersChoosingCar},					// [Blur2PC] race players in the lobby garage or mod shop.
+		{"IsHostAlone",								IsHostAlone},							// [Blur2PC] no other player has a race connection.
 		{"CanStartNextCustomRace",					CanStartNextCustomRace},				// if hosting, is it possible to actually start the nect event in a championship.
 		{"CanStartResultsWinnner",					CanStartResultsWinnner},				// is all players who raced idle on the results screen.
 		{"CanStartResultsCountdown",				CanStartResultsCountdown},				// is all players who raced idle on the results screen.

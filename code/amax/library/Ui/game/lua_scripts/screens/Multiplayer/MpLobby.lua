@@ -318,6 +318,18 @@ function MessageUpdate( message, arg1, arg2, arg3, arg4 )
 	end
 
 	if message == UIEnums.Message.ButtonStart and MpLobby_HostCanPressStart() == true and arg2 == true then
+		-- [Blur2PC] Not retail: a LAN host starting alone with AI off races 3 medium AI opponents. The lobby's
+		-- AI settings change to match, so the host can see and change them. Motor Mash has no AI.
+		if Amax.GetGameMode() == UIEnums.GameMode.SystemLink and NetRace.IsHostAlone() == true then
+			Mp_ReadCustomRaceSettings()
+			if UIGlobals.CustomRaceSettings.ai == UIEnums.MpAI.Off and UIGlobals.CustomRaceSettings.game_mode ~= UIEnums.MpRaceType.Destruction then
+				UIGlobals.CustomRaceSettings.ai			= UIEnums.MpAI.Medium
+				UIGlobals.CustomRaceSettings.ai_padding	= 3
+				Amax.SetupRace( UIGlobals.CustomRaceSettings )
+				NetRace.SendNewRaceSettings()
+			end
+		end
+
 		-- [Blur2PC] Not retail: ask first while anyone is still choosing a car or loadout.
 		if NetRace.NumPlayersChoosingCar() > 0 then
 			SetupCustomPopup( UIEnums.CustomPopups.StartWhileChoosingCar )

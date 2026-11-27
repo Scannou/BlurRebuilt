@@ -706,8 +706,13 @@ bool C_RaceModeMultiplayer::CheckForEndOfEvent(void)
 #endif // CFG_GOLD
 
 	//	If one of our local vehicles is the only vehicle left racing, they finish (no point continuing with one car on track)
+	// [Blur2PC] ...unless it was the only car from the start (a LAN host racing alone without AI, MpLobby.lua)
 	NetVehicleIndexStack globalRacingList;
-	if(GetGlobalInRaceList(globalRacingList) == 1 && VehicleIsLocal(globalRacingList[0]) && !g_AllowSingleRacer)
+	if(GetGlobalInRaceList(globalRacingList) == 1 && VehicleIsLocal(globalRacingList[0]) && !g_AllowSingleRacer
+#if defined ( PLATFORM_PC )
+		&& GetLevelState()->mNumCars > 1
+#endif
+		)
 	{
 		if(mPostRaceDelayTimer == -1)
 			mPostRaceDelayTimer = 30;
