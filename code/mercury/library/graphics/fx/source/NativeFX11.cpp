@@ -172,6 +172,58 @@ ID3D11DeviceContext* ImmediateContext()
     return context;
 }
 
+// [Blur2PC] Diagnostic for the black shunt refraction rings, only in BLUR2PC_AUTOMATION runs (automation.log):
+// what a refraction pass has bound right after its Apply. Not part of the renderer's behaviour.
+void DescribeTexture(ID3D11Resource* resource, char* text, size_t size)
+{
+    if (!resource) { sprintf_s(text, size, "null"); return; }
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    D3D11_TEXTURE2D_DESC desc = {};
+    if (SUCCEEDED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(texture.GetAddressOf()))))
+    {
+        texture->GetDesc(&desc);
+        sprintf_s(text, size, "%p %ux%u fmt=%u ms=%u bind=%x", resource, desc.Width, desc.Height,
+            static_cast<unsigned>(desc.Format), desc.SampleDesc.Count, desc.BindFlags);
+    }
+    else
+        sprintf_s(text, size, "%p (not 2D)", resource);
+}
+
+void TraceRefractPass(ID3D11DeviceContext* context)
+{
+    static unsigned traced = 0;
+    if (traced++ >= 48) return;
+
+    ID3D11RenderTargetView* targets[1] = {};
+    ID3D11DepthStencilView* depth = nullptr;
+    context->OMGetRenderTargets(1, targets, &depth);
+    Microsoft::WRL::ComPtr<ID3D11Resource> target;
+    if (targets[0]) targets[0]->GetResource(&target);
+    char targetText[128];
+    DescribeTexture(target.Get(), targetText, sizeof(targetText));
+    Blur2PCAutomation::LogF("DX11 refract %s / %s pass=%d target=%s", g_currentFile ? g_currentFile : "",
+        g_currentTechnique ? g_currentTechnique : "", g_currentIndex, targetText);
+
+    ID3D11ShaderResourceView* views[16] = {};
+    context->PSGetShaderResources(0, 16, views);
+    for (unsigned slot = 0; slot < 16; ++slot)
+    {
+        if (!views[slot]) continue;
+        Microsoft::WRL::ComPtr<ID3D11Resource> resource;
+        views[slot]->GetResource(&resource);
+        D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+        views[slot]->GetDesc(&viewDesc);
+        char text[128];
+        DescribeTexture(resource.Get(), text, sizeof(text));
+        Blur2PCAutomation::LogF("DX11 refract   t%u view=%u dim=%u %s%s", slot, static_cast<unsigned>(viewDesc.Format),
+            static_cast<unsigned>(viewDesc.ViewDimension), text, resource.Get() == target.Get() ? " SAME-AS-TARGET" : "");
+        views[slot]->Release();
+    }
+
+    if (targets[0]) targets[0]->Release();
+    if (depth) depth->Release();
+}
+
 bool FlushPendingPass()
 {
     ID3DX11EffectPass* pass = g_pendingPass;
@@ -182,6 +234,9 @@ bool FlushPendingPass()
     if (FAILED(pass->Apply(0, context)))
         sprintf_s(g_fx11LastError, "%.80s / %.80s pass=%d", g_currentEffect ? g_currentEffect : "",
             g_currentTechnique ? g_currentTechnique : "", g_currentIndex);
+    static const bool traceRefract = getenv("BLUR2PC_AUTOMATION") != nullptr;
+    if (traceRefract && g_currentFile && strstr(g_currentFile, "efract"))
+        TraceRefractPass(context);
     return true;
 }
 
@@ -341,6 +396,19 @@ void BindTexture(const Effect* effect, S_Technique& technique,
         if (tracedDamageVolume++ < 12)
             Blur2PCAutomation::LogF("DX11 FX damage binding %s / %s lookup=%s resource=%p",
                 NativeFX11EffectName(effect), sampler, name ? name : "<missing>", texture);
+    }
+    // [Blur2PC] Diagnostic for the black shunt refraction rings (see TraceRefractPass)
+    static const bool traceRefract = getenv("BLUR2PC_AUTOMATION") != nullptr;
+    if (traceRefract && strstr(sampler, "ColourBuffer"))
+    {
+        static unsigned tracedColourBuffer = 0;
+        if (tracedColourBuffer++ < 48)
+        {
+            char text[128];
+            DescribeTexture(texture, text, sizeof(text));
+            Blur2PCAutomation::LogF("DX11 refract bind %s / %s lookup=%s texture=%s", NativeFX11EffectName(effect), sampler,
+                name ? name : "<missing>", text);
+        }
     }
     if (!name) return;
     // [Blur1PCDX11] Every recovered vehicle damage-volume sampler is a
