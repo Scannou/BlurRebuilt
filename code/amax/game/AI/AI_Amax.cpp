@@ -51,6 +51,7 @@
 #include <GameLogic\FriendsChallenges\FriendChallenges.h>
 
 #include "Game/Game.h"
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] race events
 
 #if !defined(CFG_GOLD) || defined(CFG_HACKED_MASTER)
 #include <System/Misc/Random.h>
@@ -3639,6 +3640,12 @@ namespace AIAmax
 			Game::C_LapIncrementedMsg incLap(pIData->GetState().m_index,
 											pLogicState->GetLap(),
 											pLogicState->GetLastLapTime()->m_Laptime);
+
+		#if defined ( PLATFORM_PC )
+			// [Blur2PC] race events: the AI track logic runs for every car on every PC and is what sends the game's
+			// lap messages (RLTrackPositionController's never fired in a LAN race)
+			Game::C_GameLoggingManager::Instance().RaceEventLap( (U8)pIData->GetState().m_index, pLogicState->GetLastLapTime()->m_Laptime );
+		#endif
 
 			// What the f@@k is this sh@t
 			C_Game::GetInstance()->GetSubscriberSystem().BroadcastMessage(&incLap);
