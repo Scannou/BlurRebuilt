@@ -197,6 +197,8 @@
 #include <system/debug/Blur2PCAutomation.h>	// [Blur2PC]
 #include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] server_mode, server.log
 #include <share.h>							// [Blur2PC] _SH_DENYNO (server.log)
+#include <GameLogic/GameLoggingManager.h>	// [Blur2PC] server web page
+#include <ui/Game/SaveSystem/SaveSystem.h>	// [Blur2PC] SetBlurRebuiltSetting
 #include "Ui/UiLayer.h"
 
 #include "Game/AmaxCam/CameraSwitcher.h"
@@ -2476,15 +2478,18 @@ namespace
 			strcat_s( path, MAX_PATH, "server.log" );
 			s_pFile = _fsopen( path, "w", _SH_DENYNO );	// readable while the server runs
 		}
-		if ( !s_pFile )
-			return;
 		SYSTEMTIME now;
 		GetLocalTime( &now );
-		fprintf( s_pFile, "%02d:%02d:%02d ", now.wHour, now.wMinute, now.wSecond );
+		char line[1024];
+		const int stamp = _snprintf_s( line, sizeof( line ), _TRUNCATE, "%02d:%02d:%02d ", now.wHour, now.wMinute, now.wSecond );
 		va_list args;
 		va_start( args, fmt );
-		vfprintf( s_pFile, fmt, args );
+		_vsnprintf_s( line + stamp, sizeof( line ) - stamp, _TRUNCATE, fmt, args );
 		va_end( args );
+		Game::C_GameLoggingManager::Instance().ServerWebLog( line );	// the web page's log
+		if ( !s_pFile )
+			return;
+		fputs( line, s_pFile );
 		fputc( '\n', s_pFile );
 		fflush( s_pFile );
 	}
@@ -2566,6 +2571,35 @@ namespace
 		return 1;
 	}
 
+	// WebStatus(json): the server's state for the web page (GameLoggingServerWeb.inl), a JSON object
+	int Blur2PCServerLua_WebStatus( lua_State* pState )
+	{
+		Game::C_GameLoggingManager::Instance().ServerWebUpdate( lua_tostring( pState, 1 ) );
+		return 0;
+	}
+
+	// WebCommand(): the next command from the web page as name, argument; nil when there is none
+	int Blur2PCServerLua_WebCommand( lua_State* pState )
+	{
+		static char s_name[32];
+		static char s_arg[4096];
+		if ( !Game::C_GameLoggingManager::Instance().ServerWebTakeCommand( s_name, sizeof( s_name ), s_arg, sizeof( s_arg ) ) )
+			return 0;
+		lua_pushstring( pState, s_name );
+		lua_pushstring( pState, s_arg );
+		return 2;
+	}
+
+	// SaveSetting(key, value): writes a BlurRebuilt.ini line, keeping the others
+	int Blur2PCServerLua_SaveSetting( lua_State* pState )
+	{
+		const char* key = lua_tostring( pState, 1 );
+		const char* value = lua_tostring( pState, 2 );
+		if ( key && value )
+			UI::SetBlurRebuiltSetting( key, value );
+		return 0;
+	}
+
 	// C_Blur2PCMainContextScope for any UI context
 	class C_Blur2PCServerContextScope
 	{
@@ -2621,7 +2655,8 @@ namespace
 		if ( !registered )
 		{
 			static const luaL_Reg s_lib[] = { { "RaceState", Blur2PCLua_RaceState }, { "Log", Blur2PCServerLua_Log }, { "Setting", Blur2PCServerLua_Setting }, { "WriteFile", Blur2PCServerLua_WriteFile },
-				{ "Contexts", Blur2PCServerLua_Contexts }, { "Screen", Blur2PCServerLua_Screen }, { "Random", Blur2PCServerLua_Random }, { NULL, NULL } };
+				{ "Contexts", Blur2PCServerLua_Contexts }, { "Screen", Blur2PCServerLua_Screen }, { "Random", Blur2PCServerLua_Random },
+				{ "WebStatus", Blur2PCServerLua_WebStatus }, { "WebCommand", Blur2PCServerLua_WebCommand }, { "SaveSetting", Blur2PCServerLua_SaveSetting }, { NULL, NULL } };
 			luaL_register( pState, "Blur2PCServer", s_lib );
 			lua_pop( pState, 1 );
 			Blur2PCServerLogF( "server mode" );
