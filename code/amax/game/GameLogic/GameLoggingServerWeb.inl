@@ -160,7 +160,6 @@ textarea{min-height:150px;resize:vertical}label{display:block;margin:6px 0 2px;c
 <section><h2>Settings</h2><div class="row"><div><label>Countdown (s)</label><input id="s-countdown" type="number" min="5"></div>
 <div><label>Players needed</label><input id="s-min" type="number" min="1"></div>
 <div><label>Order</label><select id="s-order"><option value="inorder">in order</option><option value="shuffle">shuffle</option></select></div></div>
-<label>Leave out of random picks (parts of track names, or none)</label><input id="s-skip">
 <div style="margin-top:10px"><button id="b-settings">Save settings</button></div></section>
 )",
 R"(<section><h2>Playlist</h2><div class="dim">One race per line: <code>mode track laps class</code>, e.g. <code>race random 2 A</code> or <code>motormash random 3 any</code>. Empty: random tracks.</div>
@@ -197,7 +196,7 @@ R"(function render(d){
  $('need').textContent=s.lobby==='WaitingForHost'?('Players: '+(s.players_ready||0)+' of '+(s.min_players||1)+' needed'):('Players: '+(s.players_ready||0));
  $('players').innerHTML=(d.players||[]).map(p=>'<tr><td>'+esc(p.name)+(p.server?' <span class="pill">server</span>':'')+'</td><td>'+esc(p.state)+'</td></tr>').join('')||'<tr><td class="dim" colspan="2">nobody yet</td></tr>';
  if(!loaded&&s.lobby){loaded=true;$('s-countdown').value=s.countdown;$('s-min').value=s.min_players;$('s-order').value=s.order||'inorder';
-  $('s-skip').value=s.skip_tracks||'';$('playlist').value=(s.playlist||[]).join('\n');
+  $('playlist').value=(s.playlist||[]).join('\n');
   const t=s.tracks||{};$('tracks').textContent=Object.keys(t).map(m=>m+':\n  '+t[m].join('\n  ')).join('\n\n');}
  (d.log||[]).forEach(l=>add($('log'),'<div>'+esc(l)+'</div>'));
  (d.events||[]).forEach(e=>{const x=eventText(e);if(x)add($('events'),'<div>'+esc(x)+'</div>');});
@@ -210,7 +209,7 @@ async function cmd(c,body){let r=await fetch('/api/cmd?c='+c+'&key='+encodeURICo
  $('msg').textContent=r.ok?'Sent.':'Not accepted ('+r.status+')';setTimeout(()=>$('msg').textContent='',3000);}
 $('b-start').onclick=()=>cmd('start');$('b-skip').onclick=()=>cmd('skip');
 $('b-playlist').onclick=()=>cmd('playlist',$('playlist').value);
-$('b-settings').onclick=()=>cmd('settings','countdown='+$('s-countdown').value+'\nmin_players='+$('s-min').value+'\norder='+$('s-order').value+'\nskip_tracks='+$('s-skip').value);
+$('b-settings').onclick=()=>cmd('settings','countdown='+$('s-countdown').value+'\nmin_players='+$('s-min').value+'\norder='+$('s-order').value);
 poll();
 </script></body></html>
 )",
