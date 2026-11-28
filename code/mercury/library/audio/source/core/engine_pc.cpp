@@ -402,11 +402,11 @@ HRESULT Audio::Core::Engine::CreateBuffer(IDirectSound8* pDS, IDirectSoundBuffer
 
 	// [Blur2PC] Not retail: the small default ring leaves gaps in the menu music on some systems (upstream issue
 	// #8), where a little more latency does not matter. Menus use audio_menu_buffer_ms from BlurRebuilt.ini (default
-	// 60 ms, 0 keeps the default ring); races keep the default ring, or audio_buffer_ms when set. The game switches
+	// 64 ms, retail's ring at the low quality; 0 keeps the default ring); races keep the default ring, or audio_buffer_ms when set. The game switches
 	// between them with Audio::SetOutputForRace. Rounded up to whole blocks.
 	if (!g_PCEngineNumberOfBuffersOverride)
 	{
-		int ms = s_bRaceBuffering ? 0 : 60;
+		int ms = s_bRaceBuffering ? 0 : 64;
 		char bufferSetting[16];
 		if (Blur2PCSettings::Read(s_bRaceBuffering ? "audio_buffer_ms" : "audio_menu_buffer_ms", bufferSetting, sizeof(bufferSetting)))
 			ms = atoi(bufferSetting);
