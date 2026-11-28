@@ -118,9 +118,6 @@ Keep one class across the races: when the class changes, players whose car doesn
 LAN and online races write their events to `%APPDATA%\Bizarre Creations\Blur\race_events.jsonl`, one JSON object per line, so other tools can follow races. Events: `race_start`, `player`, `lap`, `overtake`, `powerup_hit`, `wreck`, `finish` (when each player finishes, with their finishing order and race time), `result` (every player's position and statistics) and `race_end`. Players are identified by `id`, which is the same on every PC (the `index` differs between PCs). Laps, overtakes, power-up hits and wrecks are logged for every player. Each PC works these out from its own view of the race, so two PCs can differ slightly on close moments; `result` lines are the same everywhere. A wreck says how its cause was found in `by`: `attacker` is the car the game credited with the wreck, `last_hit` is the car that last hit the wrecked one, `self` means nobody else was involved, and `unknown` means another PC's car was wrecked with no recent hit seen here. To wait for the game's credit, a wreck can be written up to a second after it happened; its `t` is still the moment of the wreck.
 
 Your name in LAN and offline games is your Windows user name (your Linux user name under Proton). To use a different name, set `player_name` in `BlurRebuilt.ini`, or put a `username.txt` file next to `BlurRebuilt.exe` with the name on its first line. Names can use up to 15 plain ASCII characters.
-## Crash reports
-
-If the game crashes, it writes `crash.txt` and `crash.dmp` to `%APPDATA%\Bizarre Creations\Blur\`. `crash.txt` says what went wrong and where, and lists the last game files it opened; a file that failed to open is marked `FAILED`. If the game stops responding for 20 seconds, it writes `hang.txt` there instead. Attach these files when you report a crash. With `Amax.pdb` next to `BlurRebuilt.exe`, the report also names the functions.
 
 ## Intro videos
 
