@@ -164,6 +164,8 @@ jobs:
           $effects = '_work/build/gen/fx11/effects'
           New-Item -ItemType Directory -Force "$stage/fx11" | Out-Null
           Copy-Item _work/build/vs/MinSizeRel/Amax.exe "$stage/BlurRebuilt.exe"
+          # [Blur2PC] fork test builds: the symbols, so crash.txt names functions and lines (Blur2PCCrashReport.h)
+          Copy-Item _work/build/vs/MinSizeRel/Amax.pdb $stage
           Copy-Item _work/build/vs/amax_client_host/MinSizeRel/AmaxClientHost.exe $stage
           Copy-Item README.md $stage
           $root = (Resolve-Path $effects).Path
