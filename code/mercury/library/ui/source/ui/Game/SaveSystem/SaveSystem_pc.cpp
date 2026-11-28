@@ -72,8 +72,8 @@ static void WriteBlurRebuiltSettingsTemplate( const char* pPath )
 			"; Also send every race event as a UDP packet to host:port (a name, an address or a broadcast address)\n"
 			";race_events_udp=lights.local:5555\n"
 			";\n"
-			"; Sound buffer in the menus, in milliseconds (default 60; 0 uses the race buffer there too)\n"
-			";audio_menu_buffer_ms=60\n"
+			"; Sound buffer in the menus, in milliseconds (default 64; 0 uses the race buffer there too)\n"
+			";audio_menu_buffer_ms=64\n"
 			";\n"
 			"; Sound buffer in races, in milliseconds: larger stops stuttering, but sounds play later (default about 30)\n"
 			";audio_buffer_ms=40\n", pFile );
