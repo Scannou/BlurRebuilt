@@ -12,6 +12,8 @@ namespace WorldRender
 	void Blur2PCInterpEndRender();
 }
 #include <system/debug/Blur2PCAutomation.h>	// [Blur2PC]
+#define BLUR2PC_CRASH_REPORT_WRITER
+#include <system/debug/Blur2PCCrashReport.h>	// [Blur2PC] crash and hang reports
 #include "Framework/Application/ApplicationPC.h"
 #include "Framework/Application/TimingColours.h"	// [Blur2PC] mini perf monitor timings
 #include "Framework/Layer/Layer.h"
@@ -108,6 +110,9 @@ C_Application::C_Application() :
 {
 	assert(s_pInstance == NULL);
 	s_pInstance = this;
+
+	// [Blur2PC] not retail: crash.txt/crash.dmp on a crash, hang.txt when the main loop stops (Blur2PCCrashReport.h)
+	Blur2PCCrashReport::Install();
 }
 
 C_Application::~C_Application()
@@ -409,6 +414,8 @@ HRESULT C_Application::Run()
 
 	while(msg.message != WM_QUIT)
 	{
+		Blur2PCCrashReport::Beat();	// [Blur2PC] the hang watchdog
+
 		bool gotMsg = PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE) != 0 ? true : false;
 
 		if(gotMsg)

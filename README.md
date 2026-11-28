@@ -80,6 +80,10 @@ These Windows environment variables are available if you want to adjust things:
 | `BLUR_DX11_HDR_PAPER_WHITE_NITS=200` | Set the brightness of menus and everyday surfaces |
 | `BLUR2PC_FRAMELIMIT=120` | Cap the frame rate |
 
+## Crash reports
+
+If the game crashes, it writes `crash.txt` and `crash.dmp` to `%APPDATA%\Bizarre Creations\Blur\`. `crash.txt` says what went wrong and where, and lists the last game files it opened; a file that failed to open is marked `FAILED`. If the game stops responding for 20 seconds, it writes `hang.txt` there instead. Attach these files when you report a crash. With `Amax.pdb` next to `BlurRebuilt.exe`, the report also names the functions.
+
 ## Intro videos
 
 The intro videos don't play. The game goes straight to the title screen. That's expected.
