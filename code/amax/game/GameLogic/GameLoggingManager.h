@@ -89,6 +89,7 @@ public:
 	void RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote, const bool lastHit = false );
 	void RaceEventFinish( const U8 vehicleIndex, const S32 vehicleState, const F32 raceTime );
 	void RaceEventResults();
+	void RaceEventUpdate( const bool force = false );
 #endif
 
 	static C_GameLoggingManager& Instance(){return s_instance;};
