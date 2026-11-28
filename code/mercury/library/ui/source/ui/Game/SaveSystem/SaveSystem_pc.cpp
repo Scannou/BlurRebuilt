@@ -76,7 +76,20 @@ static void WriteBlurRebuiltSettingsTemplate( const char* pPath )
 			";audio_menu_buffer_ms=64\n"
 			";\n"
 			"; Sound buffer in races, in milliseconds: larger stops stuttering, but sounds play later (default about 30)\n"
-			";audio_buffer_ms=40\n", pFile );
+			";audio_buffer_ms=40\n"
+			";\n"
+			"; Dedicated LAN server: this PC hosts a LAN game on its own, starts the races and only watches them\n"
+			";server_mode=1\n"
+			"; Players (not counting the server) needed before the countdown to a race starts (default 1)\n"
+			";server_min_players=2\n"
+			"; Seconds of countdown before each race (default 60)\n"
+			";server_countdown=60\n"
+			"; Races, from server_race1 up to server_race32: mode (race or motormash), track (a name from server_tracks.txt,\n"
+			"; or random), laps (minutes for motormash) and class (A to E, or any). Without any, every race is a random track.\n"
+			";server_race1=race random 2 A\n"
+			";server_race2=motormash random 3 any\n"
+			"; Order of the races: inorder or shuffle (default inorder)\n"
+			";server_order=shuffle\n", pFile );
 	fclose( pFile );
 }
 

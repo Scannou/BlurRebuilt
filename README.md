@@ -92,12 +92,25 @@ Blur Rebuilt's own settings are in `%APPDATA%\Bizarre Creations\Blur\BlurRebuilt
 | `race_events_udp=lights.local:5555` | Also send every race event as a UDP packet to that host and port as it happens. The host can be a name, an IP address or a broadcast address such as `192.168.1.255` |
 | `audio_menu_buffer_ms=64` | Sound buffer in the menus, which stops gaps in the menu music (default 64 ms; 0 uses the race buffer) |
 | `audio_buffer_ms=40` | Sound buffer in races, if sounds stutter there (default about 30 ms; longer means sounds play slightly later) |
+| `server_mode=1` | Run this PC as a dedicated LAN server (see below), with `server_min_players`, `server_countdown`, `server_race1`… and `server_order` |
 
 The environment variables `BLUR_RACE_EVENTS` and `BLUR_RACE_EVENTS_UDP` still work when the matching setting isn't in the file.
 
 ## Racing alone on LAN
 
 A LAN host can start a race with nobody else in the lobby. If AI is off, the host races 3 medium AI opponents and the lobby's AI settings change to match (except in Motor Mash, which has no AI). Team games still need other players.
+
+## Dedicated LAN server
+
+A spare PC can run the LAN game for everyone else: set `server_mode=1` in its `BlurRebuilt.ini` and start the game. It goes from the title screen to a hosted LAN custom race on its own, so nobody needs to sit at it, and it keeps running while minimised or in the background.
+
+- **Starting races:** once `server_min_players` other players are in the lobby (default 1), it picks the next race and runs the lobby's countdown (`server_countdown`, default 60 seconds). Players see the countdown and can still use the garage. Anyone still in the garage or mod shop at zero gets up to 30 seconds more.
+- **The server's own car:** it leaves each race at the green light the way an eliminated car does, then the server watches. It takes one player slot and is listed as eliminated in the results.
+- **After a race:** the results screens move on by themselves, everyone returns to the lobby and the next countdown starts.
+- **Races:** `server_race1` to `server_race32`, each `mode track laps class`, for example `server_race1=race random 2 A` or `server_race2=motormash random 3 any`. The mode is `race` or `motormash`; the track is a name from `server_tracks.txt` (the server writes it next to `BlurRebuilt.ini`) or `random`; laps are minutes for Motor Mash; the class is `A` to `E` or `any`. Without any `server_race` line, every race is a random track with the lobby's settings. `server_order=shuffle` plays them in random order.
+- **Log:** the server writes what it does to `server.log` next to `BlurRebuilt.ini`.
+
+Keep one class across the races: when the class changes, players whose car doesn't fit must pick another before the race can start.
 
 ## Race events
 
