@@ -148,6 +148,10 @@ void C_RaceModeMultiplayer::Update()
 {
 	PERF_EVENT("RMM.Update");
 
+#if defined ( PLATFORM_PC )
+	C_GameLoggingManager::Instance().RaceEventUpdate();	// [Blur2PC] race events: wrecks waiting for the game's credit
+#endif
+
 	Game::C_LevelState* pLevelState = GetLevelState();
 	const Game::C_NetGameVars& netGameVars = C_GameApp::GetInstance()->GetGame()->GetNetGameVars();
 

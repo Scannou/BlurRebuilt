@@ -112,6 +112,9 @@ static S32		s_RaceEventLaps[ 32 ];			// laps completed per vehicle this race
 static S32		s_RaceEventLastHitBy[ 32 ];		// per vehicle: who last hit it with a power-up (-1: nobody)
 static U64		s_RaceEventLastHitMs[ 32 ];
 static U64		s_RaceEventLastWreckMs[ 32 ];	// per vehicle: when its last wreck was written (0: none)
+struct S_RaceEventPendingWreck { S32 attacker; const char* by; U64 ms; };	// ms 0: none
+static S_RaceEventPendingWreck s_RaceEventPendingWrecks[ 32 ];
+static const U64 kRaceEventWreckCreditWaitMs = 1000;
 static const S32 kRaceEventRecentHits	= 64;
 static U32		s_RaceEventRecentHits[ kRaceEventRecentHits ];	// power-up id and hit vehicle already written
 static S32		s_RaceEventRecentHitNext = 0;
@@ -270,7 +273,8 @@ static bool RaceEventsActive()
 class C_RaceEventLine
 {
 public:
-	C_RaceEventLine( const char* pEvent ) : m_Length( 0 ), m_NeedComma( false ), m_Overflow( false )
+	// atMs: when it happened (GetTickCount64), for an event written after a short wait; 0 for now
+	C_RaceEventLine( const char* pEvent, const U64 atMs = 0 ) : m_Length( 0 ), m_NeedComma( false ), m_Overflow( false )
 	{
 		SYSTEMTIME now;
 		GetLocalTime( &now );
@@ -281,7 +285,7 @@ public:
 		Append( "{" );
 		Str( "time", time );
 		Str( "race", s_RaceEventRaceId );
-		Float( "t", (F32)( GetTickCount64() - s_RaceEventStartMs ) / 1000.0f );
+		Float( "t", (F32)( ( atMs ? atMs : GetTickCount64() ) - s_RaceEventStartMs ) / 1000.0f );
 		Str( "event", pEvent );
 	}
 
@@ -421,6 +425,7 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	memset( s_RaceEventLaps, 0, sizeof( s_RaceEventLaps ) );
 	memset( s_RaceEventLastHitBy, 0xff, sizeof( s_RaceEventLastHitBy ) );
 	memset( s_RaceEventLastWreckMs, 0, sizeof( s_RaceEventLastWreckMs ) );
+	memset( s_RaceEventPendingWrecks, 0, sizeof( s_RaceEventPendingWrecks ) );
 	memset( s_RaceEventRecentHits, 0xff, sizeof( s_RaceEventRecentHits ) );
 
 	if ( !RaceEventsActive() )
@@ -506,35 +511,77 @@ void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 h
 	line.Write();
 }
 
-// A wreck scored by a local car names the attacker the game credits ("by": "attacker"). A local car's own wreck
-// names the car that last hit it ("last_hit"), or nobody ("self"). A remote car's wreck seen only as its health running out is
-// credited to the last power-up hit within 5 seconds ("last_hit") or to nobody ("unknown"). Several of these can
-// report the same wreck, so a car's first report within 3 seconds is the one written.
+static void WriteRaceEventWreck( const S32 attacker, const U8 wreckedIndex, const char* pBy, const U64 atMs )
+{
+	s_RaceEventLastWreckMs[ wreckedIndex ] = atMs;
+
+	C_RaceEventLine line( "wreck", atMs );
+	if ( attacker >= 0 )
+		line.Player( "player", attacker );
+	line.Player( "wrecked", wreckedIndex );
+	line.Str( "by", pBy );
+	line.Write();
+}
+
+// A wreck the game credits to a local car names that attacker ("by": "attacker"). A local car's own wreck names
+// the car that last hit it ("last_hit"), or nobody ("self"). A remote car's wreck seen only as its health running
+// out is credited to the last power-up hit within 5 seconds ("last_hit") or to nobody ("unknown"). The wrecked car
+// often reports before the game's credit arrives, so its report waits up to a second (RaceEventUpdate) for the
+// credit, which replaces it; a car's first wreck written within 3 seconds is the only one.
 void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote, const bool lastHit )
 {
 	if ( !RaceEventsActive() || wreckedIndex >= 32 )
 		return;
 
 	const U64 now = GetTickCount64();
-	if ( s_RaceEventLastWreckMs[ wreckedIndex ] != 0 && now - s_RaceEventLastWreckMs[ wreckedIndex ] < 3000 )
+	S_RaceEventPendingWreck& pending = s_RaceEventPendingWrecks[ wreckedIndex ];
+	const bool recentlyWritten = s_RaceEventLastWreckMs[ wreckedIndex ] != 0 && now - s_RaceEventLastWreckMs[ wreckedIndex ] < 3000;
+
+	if ( attackerIndex >= 0 && !remote && !lastHit )
+	{
+		if ( pending.ms )
+		{
+			WriteRaceEventWreck( attackerIndex, wreckedIndex, "attacker", pending.ms );
+			pending.ms = 0;
+		}
+		else if ( !recentlyWritten )
+			WriteRaceEventWreck( attackerIndex, wreckedIndex, "attacker", now );
 		return;
-	s_RaceEventLastWreckMs[ wreckedIndex ] = now;
+	}
+
+	if ( pending.ms || recentlyWritten )
+		return;
 
 	S32 attacker = attackerIndex;
-	const char* pBy = ( attacker < 0 ) ? "self" : lastHit ? "last_hit" : "attacker";
+	const char* pBy = ( attacker < 0 ) ? "self" : "last_hit";
 	if ( remote )
 	{
-		const bool recent = s_RaceEventLastHitBy[ wreckedIndex ] >= 0 && GetTickCount64() - s_RaceEventLastHitMs[ wreckedIndex ] <= 5000;
+		const bool recent = s_RaceEventLastHitBy[ wreckedIndex ] >= 0 && now - s_RaceEventLastHitMs[ wreckedIndex ] <= 5000;
 		attacker = recent ? s_RaceEventLastHitBy[ wreckedIndex ] : -1;
 		pBy = recent ? "last_hit" : "unknown";
 	}
 
-	C_RaceEventLine line( "wreck" );
-	if ( attacker >= 0 )
-		line.Player( "player", attacker );
-	line.Player( "wrecked", wreckedIndex );
-	line.Str( "by", pBy );
-	line.Write();
+	pending.attacker = attacker;
+	pending.by = pBy;
+	pending.ms = now;
+}
+
+// Writes the wrecked cars' reports that waited for the game's credit long enough (all of them with force).
+void C_GameLoggingManager::RaceEventUpdate( const bool force )
+{
+	if ( !s_RaceEventRaceId[ 0 ] )
+		return;
+
+	const U64 now = GetTickCount64();
+	for ( U8 i = 0; i < 32; i++ )
+	{
+		S_RaceEventPendingWreck& pending = s_RaceEventPendingWrecks[ i ];
+		if ( !pending.ms || ( !force && now - pending.ms < kRaceEventWreckCreditWaitMs ) )
+			continue;
+		if ( RaceEventsActive() )
+			WriteRaceEventWreck( pending.attacker, i, pending.by, pending.ms );
+		pending.ms = 0;
+	}
 }
 
 // The first time a vehicle stops racing: crossed the line ("finished", with its place in the finishing order),
@@ -558,6 +605,8 @@ void C_GameLoggingManager::RaceEventResults()
 {
 	if ( !RaceEventsActive() )
 		return;
+
+	RaceEventUpdate( true );
 
 	const Game::C_LevelState& levelState = C_Game::GetInstance()->GetLevelState();
 
