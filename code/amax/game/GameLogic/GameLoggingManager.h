@@ -90,6 +90,12 @@ public:
 	void RaceEventFinish( const U8 vehicleIndex, const S32 vehicleState, const F32 raceTime );
 	void RaceEventResults();
 	void RaceEventUpdate( const bool force = false );
+
+	// [Blur2PC] Not retail: the dedicated LAN server's web page (GameLoggingServerWeb.inl). Game thread only: the
+	// server's state as a JSON object (from Lua), its log lines and the commands the page queued.
+	void ServerWebUpdate( const char* pServerJson );
+	void ServerWebLog( const char* pLine );
+	bool ServerWebTakeCommand( char* pName, const size_t uNameSize, char* pArg, const size_t uArgSize );
 #endif
 
 	static C_GameLoggingManager& Instance(){return s_instance;};

@@ -40,6 +40,8 @@
 #include <float.h>
 #include <ui/Game/SaveSystem/SaveSystem.h>
 #include <ws2tcpip.h>
+#include <ctype.h>		// [Blur2PC] isxdigit (server web page)
+#include <stdarg.h>		// [Blur2PC] va_list (server web page)
 #endif
 
 Debug::Logger &g_DemonwareGameLogging( Debug::GetLogger("Demonware.GameLogging") );
@@ -269,6 +271,8 @@ static bool RaceEventsActive()
 	return s_RaceEventRaceId[ 0 ] && pLayer && pLayer->GetGameModePtr() && pLayer->GetGameModePtr()->IsNetwork() && !LocalPlayerLeavingRace();
 }
 
+static void ServerWebAddEvent( const char* pLine );	// GameLoggingServerWeb.inl
+
 // One JSON object, written as one line; text that does not fit is dropped rather than cut mid-value.
 class C_RaceEventLine
 {
@@ -366,6 +370,7 @@ public:
 			return;
 
 		SendRaceEventUdp( m_Text, m_Length - 1 );
+		ServerWebAddEvent( m_Text );	// [Blur2PC] the LAN server's web page
 
 		if ( !s_RaceEventsFileOn )
 			return;
@@ -760,5 +765,14 @@ void C_GameLoggingManager::UploadGameLog()
 
 	C_RecordEventManager::Instance().WriteEventRecordBin(&mGameLog, sizeof(AmaxGameLog), EVENT_RECORD_CATEGORY_RACELOG);
 }
+
+#if defined ( PLATFORM_PC )
+#include "GameLoggingServerWeb.inl"	// [Blur2PC] dedicated LAN server web page
+
+static void ServerWebAddEvent( const char* pLine )
+{
+	ServerWebAddLine( s_ServerWebEvents, s_ServerWebEventSeq, pLine );
+}
+#endif
 
 }; // namespace Game

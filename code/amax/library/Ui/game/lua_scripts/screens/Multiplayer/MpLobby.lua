@@ -1458,12 +1458,41 @@ function MpLobby_ServerUpdate( time )
 		end
 	end
 
+	-- the web page's start now and skip buttons
+	local force_start = S.force_start
+	local force_skip = S.force_skip
+	S.force_start = false
+	S.force_skip = false
+	if force_skip == true then
+		if state == UIEnums.MpLobbyState.WaitingForHost or state == UIEnums.MpLobbyState.Countdown then
+			Blur2PC_ServerApplyNextRace()
+			if state == UIEnums.MpLobbyState.Countdown then
+				UIGlobals.Multiplayer.LobbyTimer = math.max( 5, Blur2PC_ServerNumber( "server_countdown", 60 ) )
+			end
+		else
+			Note( "skip ignored: the race is already starting" )
+		end
+	end
+	if force_start == true and players == 0 then
+		Note( "start now ignored: no players in the lobby" )
+		force_start = false
+	end
+
 	if state == UIEnums.MpLobbyState.Waiting then
 		UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.WaitingForHost
 		UpdateLobbyInfo()
 
 	elseif state == UIEnums.MpLobbyState.WaitingForHost then
-		if players >= min_players and NetRace.RaceInProgress() == false then
+		if force_start == true and NetRace.RaceInProgress() == false then
+			if force_skip == false then
+				Blur2PC_ServerApplyNextRace()
+			end
+			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Countdown
+			UpdateLobbyInfo()
+			UIGlobals.Multiplayer.LobbyTimer = 3
+			S.hold = 30	-- no extra wait for the garage
+			Note( "start now: race in 3 seconds" )
+		elseif players >= min_players and NetRace.RaceInProgress() == false then
 			Blur2PC_ServerApplyNextRace()
 			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Countdown
 			UpdateLobbyInfo()	-- sets the default countdown, so the server's comes after it
@@ -1475,7 +1504,11 @@ function MpLobby_ServerUpdate( time )
 		end
 
 	elseif state == UIEnums.MpLobbyState.Countdown then
-		if players < min_players then
+		if force_start == true then
+			UIGlobals.Multiplayer.LobbyTimer = 0
+			S.hold = 30	-- no extra wait for the garage
+			Note( "start now" )
+		elseif players < min_players then
 			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.WaitingForHost
 			UpdateLobbyInfo()
 			Note( "countdown stopped: " .. players .. " of " .. min_players .. " players" )
@@ -1500,6 +1533,16 @@ function MpLobby_ServerUpdate( time )
 			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.WaitingForHost
 			UpdateLobbyInfo()
 			Note( "the race did not load, waiting again" )
+		end
+	end
+
+	-- for the web page
+	S.players_ready = players
+	S.lobby_timer = UIGlobals.Multiplayer.LobbyTimer or 0
+	S.lobby_state = "Lobby"
+	for name, value in pairs( UIEnums.MpLobbyState ) do
+		if value == UIGlobals.Multiplayer.LobbyState then
+			S.lobby_state = name
 		end
 	end
 

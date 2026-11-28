@@ -521,7 +521,9 @@ end
 -- start screen it hosts a LAN custom race through the menus' own handlers, as a player pressing the buttons would,
 -- then MpLobby_ServerUpdate (MpLobby.lua) starts races when players are in, and RaceModeMultiplayer.cpp takes the
 -- server's own car out of each race. UiManager.cpp calls Blur2PC_ServerUpdate once per UI frame and registers the
--- Blur2PCServer helpers (Log, Setting, WriteFile, Contexts, Screen, Random, RaceState) only in server mode.
+-- Blur2PCServer helpers (Log, Setting, SaveSetting, WriteFile, Contexts, Screen, Random, RaceState, WebStatus,
+-- WebCommand) only in server mode. The web page (GameLoggingServerWeb.inl) shows Blur2PC_ServerPublish's state and
+-- queues the commands Blur2PC_ServerCommands carries out.
 Blur2PCServerState =
 {
 	wait			= 0,		-- seconds until the next menu step, so each screen has time to react
@@ -533,6 +535,15 @@ Blur2PCServerState =
 	hold			= 0,		-- seconds waited at the end of a countdown for players still in the garage
 	last_players	= -1,
 	last_note		= nil,
+	overrides		= {},		-- settings changed on the web page this run (also saved to BlurRebuilt.ini)
+	force_start		= false,	-- web page: start now
+	force_skip		= false,	-- web page: skip to the next race
+	lobby_state		= nil,		-- MpLobby_ServerUpdate: lobby state name, timer, players for the web page
+	lobby_timer		= 0,
+	players_ready	= 0,
+	current			= nil,		-- the lobby's race as set by the server
+	tracks_json		= nil,
+	status_wait		= 0,
 }
 
 function Blur2PC_IsServer()
@@ -545,8 +556,20 @@ function Blur2PC_ServerLog( text )
 	end
 end
 
+-- a setting: changed on the web page this run, else from BlurRebuilt.ini; nil when missing or empty
+function Blur2PC_ServerSetting( key )
+	value = Blur2PCServerState.overrides[ key ]
+	if value == nil then
+		value = Blur2PCServer.Setting( key )
+	end
+	if value == "" then
+		return nil
+	end
+	return value
+end
+
 function Blur2PC_ServerNumber( key, default )
-	local value = tonumber( Blur2PCServer.Setting( key ) or "" )
+	local value = tonumber( Blur2PC_ServerSetting( key ) or "" )
 	if value == nil then
 		return default
 	end
@@ -557,7 +580,7 @@ end
 -- Dumbo tracks do not load on some copies of the game; "server_skip_tracks=none" leaves nothing out)
 function Blur2PC_ServerSkipWords()
 	local words = {}
-	local line = string.lower( Blur2PCServer.Setting( "server_skip_tracks" ) or "dumbo" )
+	local line = string.lower( Blur2PC_ServerSetting( "server_skip_tracks" ) or "dumbo" )
 	for word in string.gmatch( line, "[^%s,]+" ) do
 		if word ~= "none" then
 			table.insert( words, word )
@@ -596,6 +619,22 @@ function Blur2PC_ServerWriteTracks()
 		end
 	end
 	Blur2PCServer.WriteFile( "server_tracks.txt", text )
+
+	local json = {}
+	for _, mode in ipairs( { { "race", UIEnums.MpRaceType.Racing }, { "motormash", UIEnums.MpRaceType.Destruction } } ) do
+		local names = {}
+		for _, track in ipairs( Blur2PC_ServerTracks( mode[2] ) ) do
+			table.insert( names, Blur2PC_Json( track.tag .. Select( track.point_to_point == true, " (one lap)", "" ) .. Select( track.skip == true, " (left out of random)", "" ) ) )
+		end
+		table.insert( json, Blur2PC_Json( mode[1] ) .. ":[" .. table.concat( names, "," ) .. "]" )
+	end
+	Blur2PCServerState.tracks_json = "{" .. table.concat( json, "," ) .. "}"
+end
+
+-- a JSON string
+function Blur2PC_Json( text )
+	text = string.gsub( tostring( text ), '[%c"\\]', function( c ) return string.format( "\\u%04x", string.byte( c ) ) end )
+	return '"' .. text .. '"'
 end
 
 -- server_race1 ... server_race32: "<race|motormash> <track|random> <laps or minutes> <A-E|any>"; the last three may be
@@ -604,23 +643,12 @@ function Blur2PC_ServerPlaylist()
 	if Blur2PCServerState.playlist ~= nil then
 		return Blur2PCServerState.playlist
 	end
-	local classes = { a = UIEnums.MpVehicleClass.ClassA, b = UIEnums.MpVehicleClass.ClassB, c = UIEnums.MpVehicleClass.ClassC,
-					  d = UIEnums.MpVehicleClass.ClassD, e = UIEnums.MpVehicleClass.ClassE, any = UIEnums.MpVehicleClass.Any }
 	local playlist = {}
 	for i = 1, 32 do
 		local line = Blur2PCServer.Setting( "server_race" .. i )
-		if line ~= nil then
-			local words = {}
-			for word in string.gmatch( string.lower( line ), "%S+" ) do
-				table.insert( words, word )
-			end
-			local entry = { text = line, track = words[2] or "random", limit = tonumber( words[3] or "" ), class = classes[ words[4] or "" ] }
-			if words[1] == "motormash" or words[1] == "mash" or words[1] == "destruction" then
-				entry.mode = UIEnums.MpRaceType.Destruction
-			elseif words[1] == "race" or words[1] == nil then
-				entry.mode = UIEnums.MpRaceType.Racing
-			end
-			if entry.mode == nil or ( words[4] ~= nil and entry.class == nil ) then
+		if line ~= nil and string.find( line, "%S" ) ~= nil then
+			local entry = Blur2PC_ServerParseRace( line )
+			if entry == nil then
 				Blur2PC_ServerLog( "server_race" .. i .. " ignored, not understood: " .. line )
 			else
 				table.insert( playlist, entry )
@@ -630,6 +658,106 @@ function Blur2PC_ServerPlaylist()
 	Blur2PC_ServerLog( #playlist .. " playlist races" )
 	Blur2PCServerState.playlist = playlist
 	return playlist
+end
+
+-- one playlist line; nil when it is not understood
+function Blur2PC_ServerParseRace( line )
+	local classes = { a = UIEnums.MpVehicleClass.ClassA, b = UIEnums.MpVehicleClass.ClassB, c = UIEnums.MpVehicleClass.ClassC,
+					  d = UIEnums.MpVehicleClass.ClassD, e = UIEnums.MpVehicleClass.ClassE, any = UIEnums.MpVehicleClass.Any }
+	local words = {}
+	for word in string.gmatch( string.lower( line ), "%S+" ) do
+		table.insert( words, word )
+	end
+	local entry = { text = line, track = words[2] or "random", limit = tonumber( words[3] or "" ), class = classes[ words[4] or "" ] }
+	if words[1] == "motormash" or words[1] == "mash" or words[1] == "destruction" then
+		entry.mode = UIEnums.MpRaceType.Destruction
+	elseif words[1] == "race" then
+		entry.mode = UIEnums.MpRaceType.Racing
+	end
+	if entry.mode == nil or ( words[3] ~= nil and entry.limit == nil ) or ( words[4] ~= nil and entry.class == nil ) then
+		return nil
+	end
+	return entry
+end
+
+-- web page commands; run every UI frame
+function Blur2PC_ServerCommands()
+	local S = Blur2PCServerState
+	local name, arg = Blur2PCServer.WebCommand()
+	while name ~= nil do
+		if name == "start" or name == "skip" then
+			if UIGlobals.Multiplayer.InLobby == true then
+				S[ Select( name == "start", "force_start", "force_skip" ) ] = true
+				Blur2PC_ServerLog( "web page: " .. Select( name == "start", "start now", "skip to the next race" ) )
+			else
+				Blur2PC_ServerLog( "web page: " .. name .. " ignored, the server is not in the lobby" )
+			end
+
+		elseif name == "playlist" then
+			local playlist = {}
+			local bad = 0
+			for line in string.gmatch( arg .. "\n", "([^\r\n]*)\r?\n" ) do
+				if string.find( line, "%S" ) ~= nil then
+					local entry = Blur2PC_ServerParseRace( line )
+					if entry ~= nil and #playlist < 32 then
+						table.insert( playlist, entry )
+					else
+						bad = bad + 1
+						Blur2PC_ServerLog( "web page: playlist line not understood: " .. line )
+					end
+				end
+			end
+			for i = 1, 32 do
+				Blur2PCServer.SaveSetting( "server_race" .. i, Select( i <= #playlist, playlist[i] ~= nil and playlist[i].text or "", "" ) )
+			end
+			S.playlist = playlist
+			S.race_index = 0
+			Blur2PC_ServerLog( "web page: playlist of " .. #playlist .. " races saved" .. Select( bad > 0, ", " .. bad .. " lines left out", "" ) )
+
+		elseif name == "settings" then
+			for key, value in string.gmatch( arg, "([%w_]+)=([^\r\n]*)" ) do
+				local ini_key = "server_" .. key
+				if key == "countdown" or key == "min_players" or key == "order" or key == "skip_tracks" then
+					S.overrides[ ini_key ] = value
+					Blur2PCServer.SaveSetting( ini_key, value )
+				end
+			end
+			Blur2PC_ServerLog( "web page: settings saved" )
+		end
+		name, arg = Blur2PCServer.WebCommand()
+	end
+end
+
+-- the server's state for the web page, twice a second
+function Blur2PC_ServerPublish( dt )
+	local S = Blur2PCServerState
+	S.status_wait = S.status_wait - dt
+	if S.status_wait > 0 then
+		return
+	end
+	S.status_wait = 0.5
+
+	local lobby = "Menus"
+	if UIGlobals.Multiplayer.InLobby == true and S.lobby_state ~= nil then
+		lobby = S.lobby_state
+	end
+	local playlist = {}
+	for _, entry in ipairs( Blur2PC_ServerPlaylist() ) do
+		table.insert( playlist, Blur2PC_Json( entry.text ) )
+	end
+	local json = "{" ..
+		'"lobby":' .. Blur2PC_Json( lobby ) ..
+		',"timer":' .. string.format( "%.1f", S.lobby_timer or 0 ) ..
+		',"race_state":' .. Blur2PC_Json( Blur2PCServer.RaceState() ) ..
+		',"players_ready":' .. ( S.players_ready or 0 ) ..
+		',"min_players":' .. math.max( 1, Blur2PC_ServerNumber( "server_min_players", 1 ) ) ..
+		',"countdown":' .. math.max( 5, Blur2PC_ServerNumber( "server_countdown", 60 ) ) ..
+		',"order":' .. Blur2PC_Json( string.lower( Blur2PC_ServerSetting( "server_order" ) or "inorder" ) ) ..
+		',"skip_tracks":' .. Blur2PC_Json( Blur2PC_ServerSetting( "server_skip_tracks" ) or "dumbo" ) ..
+		',"current":' .. Select( S.current ~= nil, Blur2PC_Json( S.current or "" ), "null" ) ..
+		',"playlist":[' .. table.concat( playlist, "," ) .. "]" ..
+		',"tracks":' .. ( S.tracks_json or "{}" ) .. "}"
+	Blur2PCServer.WebStatus( json )
 end
 
 -- sets the next race of the playlist (or a random track) as the lobby's race and sends it to the players, the way the
@@ -642,7 +770,7 @@ function Blur2PC_ServerApplyNextRace()
 
 	local entry = { mode = settings.game_mode, track = "random" }
 	if #playlist > 0 then
-		local order = string.lower( Blur2PCServer.Setting( "server_order" ) or "" )
+		local order = string.lower( Blur2PC_ServerSetting( "server_order" ) or "" )
 		if order == "shuffle" and #playlist > 1 then
 			local index = S.race_index
 			while index == S.race_index do
@@ -705,6 +833,7 @@ function Blur2PC_ServerApplyNextRace()
 
 	Amax.SetupRace( settings )
 	NetRace.SendNewRaceSettings()
+	S.current = pick.tag .. Select( entry.mode == UIEnums.MpRaceType.Destruction, ", Motor Mash " .. settings.time, ", " .. settings.laps .. " laps" )
 	Blur2PC_ServerLog( "next race: " .. pick.tag .. Select( entry.mode == UIEnums.MpRaceType.Destruction, ", " .. settings.time .. " time", ", " .. settings.laps .. " laps" ) .. ", class " .. tostring( settings.class ) .. Select( entry.text ~= nil, " (" .. tostring( entry.text ) .. ")", "" ) )
 end
 
@@ -732,6 +861,8 @@ end
 -- context and a function to run there
 function Blur2PC_ServerUpdate( dt )
 	local S = Blur2PCServerState
+	Blur2PC_ServerCommands()
+	Blur2PC_ServerPublish( dt )
 	S.wait = S.wait - dt
 	if S.wait > 0 then
 		return

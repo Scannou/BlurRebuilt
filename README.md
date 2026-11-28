@@ -92,7 +92,7 @@ Blur Rebuilt's own settings are in `%APPDATA%\Bizarre Creations\Blur\BlurRebuilt
 | `race_events_udp=lights.local:5555` | Also send every race event as a UDP packet to that host and port as it happens. The host can be a name, an IP address or a broadcast address such as `192.168.1.255` |
 | `audio_menu_buffer_ms=64` | Sound buffer in the menus, which stops gaps in the menu music (default 64 ms; 0 uses the race buffer) |
 | `audio_buffer_ms=40` | Sound buffer in races, if sounds stutter there (default about 30 ms; longer means sounds play slightly later) |
-| `server_mode=1` | Run this PC as a dedicated LAN server (see below), with `server_min_players`, `server_countdown`, `server_race1`… and `server_order` |
+| `server_mode=1` | Run this PC as a dedicated LAN server (see below), with `server_min_players`, `server_countdown`, `server_race1`…, `server_order`, `server_skip_tracks`, `server_web_port` and `server_web_password` |
 
 The environment variables `BLUR_RACE_EVENTS` and `BLUR_RACE_EVENTS_UDP` still work when the matching setting isn't in the file.
 
@@ -108,6 +108,7 @@ A spare PC can run the LAN game for everyone else: set `server_mode=1` in its `B
 - **The server's own car:** it leaves each race at the green light the way an eliminated car does, then the server watches. It takes one player slot and is listed as eliminated in the results.
 - **After a race:** the results screens move on by themselves, everyone returns to the lobby and the next countdown starts.
 - **Races:** `server_race1` to `server_race32`, each `mode track laps class`, for example `server_race1=race random 2 A` or `server_race2=motormash random 3 any`. The mode is `race` or `motormash`; the track is a name from `server_tracks.txt` (the server writes it next to `BlurRebuilt.ini`) or `random`; laps are minutes for Motor Mash; the class is `A` to `E` or `any`. Without any `server_race` line, every race is a random track with the lobby's settings. `server_order=shuffle` plays them in random order. Random picks leave out the NY Dumbo tracks for now (they don't load on some copies); `server_skip_tracks` takes other parts of track names to leave out, or `none`.
+- **Web page:** open `http://<server PC>:8080` from any device on the LAN. It shows the lobby, the countdown, the players and their state, the race events as they happen and the server's log. Its buttons start the race now or skip to the next one, and it edits the playlist and the settings above (saved to `BlurRebuilt.ini`). `server_web_port` changes the port (`0` turns the page off) and `server_web_password` asks for a password before any button works. Windows asks once whether to let the game through its firewall: allow it on private networks.
 - **Log:** the server writes what it does to `server.log` next to `BlurRebuilt.ini`.
 
 Keep one class across the races: when the class changes, players whose car doesn't fit must pick another before the race can start.
