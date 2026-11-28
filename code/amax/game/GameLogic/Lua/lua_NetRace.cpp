@@ -1944,6 +1944,27 @@ namespace Game
 		return 1;
 	}
 
+	// [Blur2PC] Not retail: other players with a race connection who have finished joining, so a dedicated LAN server
+	// (server_mode=1, MpLobby.lua) counts the players it is waiting for without itself or anyone still connecting.
+	static S32 NumRemotePlayersReady(lua_State* pState)
+	{
+		U32 count = 0;
+		RacerNet::C_NetServices& services = RacerNet::C_NetServices::Instance();
+		if (services.IsInitialised())
+		{
+			RacerNet::C_NetPlayerManager& mgr = services.PlayerManager();
+			for (U8 i=0; i<mgr.TotalSize(); i++)
+			{
+				RacerNet::C_NetPlayer* p = mgr.Index(i);
+				if (!p->LocalPlayer() && p->m_RaceConnection.IsActive() && p->m_RaceConnection.m_PlayerState >= RacerNet::eNetPlayerStateIdle)
+					count++;
+			}
+		}
+
+		lua_pushnumber(pState, count);
+		return 1;
+	}
+
 	static S32 CanStartNextCustomRace(lua_State* pState)
 	{
 		bool canStart = false;
@@ -3074,6 +3095,7 @@ namespace Game
 		{"CanStartCustomRace",						CanStartCustomRace},					// if hosting, is it possible to actually start the race.
 		{"NumPlayersChoosingCar",					NumPlayersChoosingCar},					// [Blur2PC] race players in the lobby garage or mod shop.
 		{"IsHostAlone",								IsHostAlone},							// [Blur2PC] no other player has a race connection.
+		{"NumRemotePlayersReady",					NumRemotePlayersReady},					// [Blur2PC] other race players who finished joining.
 		{"CanStartNextCustomRace",					CanStartNextCustomRace},				// if hosting, is it possible to actually start the nect event in a championship.
 		{"CanStartResultsWinnner",					CanStartResultsWinnner},				// is all players who raced idle on the results screen.
 		{"CanStartResultsCountdown",				CanStartResultsCountdown},				// is all players who raced idle on the results screen.

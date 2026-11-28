@@ -12,6 +12,7 @@ namespace WorldRender
 	void Blur2PCInterpEndRender();
 }
 #include <system/debug/Blur2PCAutomation.h>	// [Blur2PC]
+#include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] server_mode
 #include "Framework/Application/ApplicationPC.h"
 #include "Framework/Application/TimingColours.h"	// [Blur2PC] mini perf monitor timings
 #include "Framework/Layer/Layer.h"
@@ -165,7 +166,8 @@ bool C_Application::CanRender()
 
 	// [Blur2PC] scripted runs keep their window minimised (MyCreateWindow) and still render, so the
 	// back-buffer screenshots work; not in retail
-	if(IsIconic(m_Window.m_hWnd) && !Blur2PCAutomation::IsActive())
+	// [Blur2PC] a dedicated LAN server (server_mode=1 in BlurRebuilt.ini) also keeps running its menus while minimised
+	if(IsIconic(m_Window.m_hWnd) && !Blur2PCAutomation::IsActive() && !Blur2PCSettings::ServerMode())
 		return false;
 
 	if(m_pDisplayDevice->GetLost())
@@ -732,8 +734,8 @@ void C_Application::UpdateCursor()
 
 void C_Application::FocusChange(const bool gotFocus)
 {
-	// [Blur2PC] unattended scripted runs must not pause when someone uses another window
-	if (!gotFocus && Blur2PCAutomation::IsActive())
+	// [Blur2PC] unattended scripted runs and a dedicated LAN server must not pause when someone uses another window
+	if (!gotFocus && (Blur2PCAutomation::IsActive() || Blur2PCSettings::ServerMode()))
 		return;
 	if(m_HasFocus)
 	{

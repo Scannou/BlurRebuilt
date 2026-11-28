@@ -45,6 +45,9 @@
 #include <GameLogic\Pickups\Normal\PickupShock.h>
 
 #include <Network\Session.h>
+#if defined ( PLATFORM_PC )
+#include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] server_mode
+#endif
 #include <Network\ScoreboardWriter.h>
 #include <Network\PlayerSkillWriter.h>
 #include <Network\PlayerSkill.h>
@@ -150,6 +153,23 @@ void C_RaceModeMultiplayer::Update()
 
 #if defined ( PLATFORM_PC )
 	C_GameLoggingManager::Instance().RaceEventUpdate();	// [Blur2PC] race events: wrecks waiting for the game's credit
+#endif
+
+#if defined ( PLATFORM_PC )
+	// [Blur2PC] Not retail: a dedicated LAN server (server_mode=1 in BlurRebuilt.ini) races no car of its own. At the
+	// start it takes its player car out the way an eliminated player's car leaves: VehicleFinished(ELIMINATED) sends
+	// the car's results, every PC removes the car (EliminateVehicle, then the logic actor's PreRemoveFromRace) and
+	// the server's UI moves on to spectating. Its AI cars race on.
+	if ( Blur2PCSettings::ServerMode() && !mRaceFinished && GetRaceLogicLayer() &&
+		GetRaceLogicLayer()->GetRaceState() == Game::E_RaceState_Racing )
+	{
+		const Game::C_LevelState* pServerLevelState = GetLevelState();
+		for ( U8 i = 0; i < pServerLevelState->mNumCars; i++ )
+		{
+			if ( VehicleIsLocal( i ) && pServerLevelState->mCars[i].mControlType == E_VEHICLE_CONTROL_TYPE_PLAYER && VehicleData( i ).IsRacing() )
+				VehicleFinished( i, Game::E_VEHICLE_STATE_ELIMINATED );
+		}
+	}
 #endif
 
 	Game::C_LevelState* pLevelState = GetLevelState();

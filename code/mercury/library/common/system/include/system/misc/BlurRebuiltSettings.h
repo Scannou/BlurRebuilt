@@ -84,6 +84,19 @@ namespace Blur2PCSettings
 		fclose( pFile );
 		return found;
 	}
+
+	//! [Blur2PC] Not retail: true with server_mode=1, a dedicated LAN server (UiManager.cpp drives the menus and
+	//! the lobby, RaceModeMultiplayer.cpp takes the server's own car out of each race). Read once per run.
+	inline bool ServerMode()
+	{
+		static int s_mode = -1;
+		if ( s_mode < 0 )
+		{
+			char value[ 16 ];
+			s_mode = ( Read( "server_mode", value, sizeof( value ) ) && atoi( value ) != 0 ) ? 1 : 0;
+		}
+		return s_mode == 1;
+	}
 }
 
 #endif // PLATFORM_PC

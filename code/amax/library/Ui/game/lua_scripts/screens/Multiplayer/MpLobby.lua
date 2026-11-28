@@ -602,7 +602,8 @@ function FrameUpdate( time )
 	end
 
 	-- only the host can control the lobby state and peers state
-	if NetRace.IsHost() == true then
+	-- [Blur2PC] Not retail: a dedicated LAN server runs the lobby itself (MpLobby_ServerUpdate)
+	if NetRace.IsHost() == true and MpLobby_ServerUpdate( time ) == false then
 		-- voting/countdown hasnt started or the host hasnt pressed start yet
 		if UIGlobals.Multiplayer.LobbyState == UIEnums.MpLobbyState.Waiting then
 
@@ -1431,3 +1432,76 @@ function MpLobby_RefreshCurrentRace()
 	Mp_RaceTypeIcon( UIButtons.FindChildByName( GUI.RaceOverviewID, "mode_icon" ), race )
 end
 
+-- [Blur2PC] Not retail: the lobby of a dedicated LAN server (server_mode=1 in BlurRebuilt.ini, see MpGUIBank.lua).
+-- Once server_min_players other players are in (default 1), it sets the next race of the playlist and runs the
+-- lobby's own countdown (server_countdown seconds, default 60; the players see it and can still use the garage),
+-- then starts the race as the host's start button does. Players still in the garage or mod shop at zero get up to
+-- 30 seconds more. Returns false when this is no server, so the host's lobby runs as in retail.
+function MpLobby_ServerUpdate( time )
+	if Blur2PC_IsServer() == false or Amax.GetGameMode() ~= UIEnums.GameMode.SystemLink then
+		return false
+	end
+
+	local S = Blur2PCServerState
+	if S.tracks_written == false then
+		Blur2PC_ServerWriteTracks()
+	end
+
+	local players = NetRace.NumRemotePlayersReady()
+	local min_players = math.max( 1, Blur2PC_ServerNumber( "server_min_players", 1 ) )
+	local state = UIGlobals.Multiplayer.LobbyState
+
+	local function Note( text )
+		if S.last_note ~= text then
+			S.last_note = text
+			Blur2PC_ServerLog( text )
+		end
+	end
+
+	if state == UIEnums.MpLobbyState.Waiting then
+		UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.WaitingForHost
+		UpdateLobbyInfo()
+
+	elseif state == UIEnums.MpLobbyState.WaitingForHost then
+		if players >= min_players and NetRace.RaceInProgress() == false then
+			Blur2PC_ServerApplyNextRace()
+			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Countdown
+			UpdateLobbyInfo()	-- sets the default countdown, so the server's comes after it
+			UIGlobals.Multiplayer.LobbyTimer = math.max( 5, Blur2PC_ServerNumber( "server_countdown", 60 ) )
+			S.hold = 0
+			Note( players .. " players in: race in " .. UIGlobals.Multiplayer.LobbyTimer .. " seconds" )
+		else
+			Note( "waiting for players: " .. players .. " of " .. min_players )
+		end
+
+	elseif state == UIEnums.MpLobbyState.Countdown then
+		if players < min_players then
+			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.WaitingForHost
+			UpdateLobbyInfo()
+			Note( "countdown stopped: " .. players .. " of " .. min_players .. " players" )
+		elseif UIGlobals.Multiplayer.LobbyTimer <= 0 then
+			if NetRace.NumPlayersChoosingCar() > 0 and S.hold < 30 then
+				S.hold = S.hold + time
+				Note( "waiting for players in the garage (up to 30 seconds)" )
+			elseif NetRace.CanStartCustomRace() == true then
+				NetRace.LaunchCustomRace()
+				UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.Ready
+				S.hold = 0
+				Note( "race started with " .. players .. " players" )
+			else
+				Note( "cannot start yet: a player is joining, or a car does not fit the race's class" )
+			end
+		end
+
+	elseif state == UIEnums.MpLobbyState.Ready then
+		-- the race loads from here; should it not, wait for players again
+		S.hold = S.hold + time
+		if S.hold > 30 then
+			UIGlobals.Multiplayer.LobbyState = UIEnums.MpLobbyState.WaitingForHost
+			UpdateLobbyInfo()
+			Note( "the race did not load, waiting again" )
+		end
+	end
+
+	return true
+end

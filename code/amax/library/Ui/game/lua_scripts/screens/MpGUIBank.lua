@@ -516,3 +516,263 @@ function Mp_ResetSpectateVars()
 	UIGlobals.Mp_SpectateCurrentVehicle = Amax.GetPlayerVehicleIndex( 0 )
 	UIGlobals.Mp_SpectateCurrentCamera = 1
 end
+
+-- [Blur2PC] Not retail: dedicated LAN server (server_mode=1 in BlurRebuilt.ini). Nobody sits at the server: from the
+-- start screen it hosts a LAN custom race through the menus' own handlers, as a player pressing the buttons would,
+-- then MpLobby_ServerUpdate (MpLobby.lua) starts races when players are in, and RaceModeMultiplayer.cpp takes the
+-- server's own car out of each race. UiManager.cpp calls Blur2PC_ServerUpdate once per UI frame and registers the
+-- Blur2PCServer helpers (Log, Setting, WriteFile, Contexts, Screen, Random, RaceState) only in server mode.
+Blur2PCServerState =
+{
+	wait			= 0,		-- seconds until the next menu step, so each screen has time to react
+	step			= nil,		-- last logged menu step
+	popup			= false,	-- a popup was open at the last check
+	race_index		= 0,		-- last playlist entry used
+	playlist		= nil,		-- parsed server_race lines
+	tracks_written	= false,
+	hold			= 0,		-- seconds waited at the end of a countdown for players still in the garage
+	last_players	= -1,
+	last_note		= nil,
+}
+
+function Blur2PC_IsServer()
+	return Blur2PCServer ~= nil
+end
+
+function Blur2PC_ServerLog( text )
+	if Blur2PCServer ~= nil then
+		Blur2PCServer.Log( text )
+	end
+end
+
+function Blur2PC_ServerNumber( key, default )
+	local value = tonumber( Blur2PCServer.Setting( key ) or "" )
+	if value == nil then
+		return default
+	end
+	return value
+end
+
+-- every track of a mode: { city, route, tag, point_to_point }
+function Blur2PC_ServerTracks( mode )
+	local tracks = {}
+	for _, city in ipairs( Multiplayer.GetCustomRaceCities( mode ) ) do
+		for _, route in ipairs( Multiplayer.GetCustomRaceRoutes( city.id, mode ) ) do
+			table.insert( tracks, { city = city.id, route = route.id, tag = string.lower( route.debug_tag ), point_to_point = route.point_to_point } )
+		end
+	end
+	return tracks
+end
+
+-- server_tracks.txt beside BlurRebuilt.ini lists the track names server_race lines take
+function Blur2PC_ServerWriteTracks()
+	Blur2PCServerState.tracks_written = true
+	local text = "; Tracks for server_race lines in BlurRebuilt.ini (written by the server at every start)\n"
+	for _, mode in ipairs( { { "race", UIEnums.MpRaceType.Racing }, { "motormash", UIEnums.MpRaceType.Destruction } } ) do
+		text = text .. "\n" .. mode[1] .. ":\n"
+		for _, track in ipairs( Blur2PC_ServerTracks( mode[2] ) ) do
+			text = text .. "  " .. track.tag .. Select( track.point_to_point == true, "   (one lap only)", "" ) .. "\n"
+		end
+	end
+	Blur2PCServer.WriteFile( "server_tracks.txt", text )
+end
+
+-- server_race1 ... server_race32: "<race|motormash> <track|random> <laps or minutes> <A-E|any>"; the last three may be
+-- left out (random track, the lobby's laps or time and class)
+function Blur2PC_ServerPlaylist()
+	if Blur2PCServerState.playlist ~= nil then
+		return Blur2PCServerState.playlist
+	end
+	local classes = { a = UIEnums.MpVehicleClass.ClassA, b = UIEnums.MpVehicleClass.ClassB, c = UIEnums.MpVehicleClass.ClassC,
+					  d = UIEnums.MpVehicleClass.ClassD, e = UIEnums.MpVehicleClass.ClassE, any = UIEnums.MpVehicleClass.Any }
+	local playlist = {}
+	for i = 1, 32 do
+		local line = Blur2PCServer.Setting( "server_race" .. i )
+		if line ~= nil then
+			local words = {}
+			for word in string.gmatch( string.lower( line ), "%S+" ) do
+				table.insert( words, word )
+			end
+			local entry = { text = line, track = words[2] or "random", limit = tonumber( words[3] or "" ), class = classes[ words[4] or "" ] }
+			if words[1] == "motormash" or words[1] == "mash" or words[1] == "destruction" then
+				entry.mode = UIEnums.MpRaceType.Destruction
+			elseif words[1] == "race" or words[1] == nil then
+				entry.mode = UIEnums.MpRaceType.Racing
+			end
+			if entry.mode == nil or ( words[4] ~= nil and entry.class == nil ) then
+				Blur2PC_ServerLog( "server_race" .. i .. " ignored, not understood: " .. line )
+			else
+				table.insert( playlist, entry )
+			end
+		end
+	end
+	Blur2PC_ServerLog( #playlist .. " playlist races" )
+	Blur2PCServerState.playlist = playlist
+	return playlist
+end
+
+-- sets the next race of the playlist (or a random track) as the lobby's race and sends it to the players, the way the
+-- custom race screen does when the host changes it
+function Blur2PC_ServerApplyNextRace()
+	local S = Blur2PCServerState
+	local playlist = Blur2PC_ServerPlaylist()
+	Mp_ReadCustomRaceSettings()
+	local settings = UIGlobals.CustomRaceSettings
+
+	local entry = { mode = settings.game_mode, track = "random" }
+	if #playlist > 0 then
+		local order = string.lower( Blur2PCServer.Setting( "server_order" ) or "" )
+		if order == "shuffle" and #playlist > 1 then
+			local index = S.race_index
+			while index == S.race_index do
+				index = Blur2PCServer.Random( #playlist )
+			end
+			S.race_index = index
+		else
+			S.race_index = Select( S.race_index >= #playlist, 1, S.race_index + 1 )
+		end
+		entry = playlist[ S.race_index ]
+	end
+
+	local tracks = Blur2PC_ServerTracks( entry.mode )
+	if #tracks == 0 then
+		Blur2PC_ServerLog( "no tracks for mode " .. tostring( entry.mode ) .. ", lobby race kept" )
+		return
+	end
+	local pick = nil
+	if entry.track ~= "random" then
+		for _, track in ipairs( tracks ) do
+			if track.tag == entry.track then
+				pick = track
+			end
+		end
+		if pick == nil then
+			Blur2PC_ServerLog( "unknown track " .. entry.track .. " (see server_tracks.txt), random track instead" )
+		end
+	end
+	if pick == nil then
+		pick = tracks[ Blur2PCServer.Random( #tracks ) ]
+	end
+
+	local limits = Multiplayer.GetCustomRaceLimits()
+	settings.game_mode	= entry.mode
+	settings.city_id	= pick.city
+	settings.route_id	= pick.route
+	if entry.mode == UIEnums.MpRaceType.Destruction then
+		local time = entry.limit or settings.time
+		time = math.max( limits.time_step, math.min( limits.max_time, time ) )
+		settings.time = math.floor( time / limits.time_step ) * limits.time_step
+		settings.laps = 1
+	else
+		local laps = entry.limit or settings.laps
+		settings.laps = Select( pick.point_to_point == true, 1, math.max( 1, math.min( limits.max_laps, laps ) ) )
+		settings.time = 1
+	end
+	if entry.class ~= nil then
+		settings.class = entry.class
+	end
+
+	Amax.SetupRace( settings )
+	NetRace.SendNewRaceSettings()
+	Blur2PC_ServerLog( "next race: " .. pick.tag .. Select( entry.mode == UIEnums.MpRaceType.Destruction, ", " .. settings.time .. " time", ", " .. settings.laps .. " laps" ) .. ", class " .. tostring( settings.class ) .. Select( entry.text ~= nil, " (" .. tostring( entry.text ) .. ")", "" ) )
+end
+
+-- the context showing a screen, or nil
+function Blur2PC_ServerFindScreen( screen )
+	for i = 0, Blur2PCServer.Contexts() - 1 do
+		if Blur2PCServer.Screen( i ) == screen then
+			return i
+		end
+	end
+	return nil
+end
+
+-- one menu step: logged, then run in that context after the UI manager returns it
+local function ServerStep( context, text, action, wait )
+	if Blur2PCServerState.step ~= text then
+		Blur2PCServerState.step = text
+		Blur2PC_ServerLog( text )
+	end
+	Blur2PCServerState.wait = wait or 1
+	return context, action
+end
+
+-- called by UiManager.cpp each UI frame in server mode, with the main context's GUI bound; returns nothing, or a
+-- context and a function to run there
+function Blur2PC_ServerUpdate( dt )
+	local S = Blur2PCServerState
+	S.wait = S.wait - dt
+	if S.wait > 0 then
+		return
+	end
+
+	local popup = UIScreen.IsPopupActive()
+	if popup ~= S.popup then
+		S.popup = popup
+		Blur2PC_ServerLog( Select( popup == true, "popup open, waiting", "popup closed" ) )
+	end
+	if popup == true then
+		return
+	end
+
+	-- the lobby and races run on their own (MpLobby.lua, RaceModeMultiplayer.cpp)
+	-- (the lobby opens as a sub screen, so its own flag says when it is up)
+	if UIGlobals.Multiplayer.InLobby == true or Blur2PC_ServerFindScreen( [[multiplayer\mplobby.lua]] ) ~= nil or Blur2PCServer.RaceState() ~= "None" then
+		S.step = nil
+		return
+	end
+
+	local context = Blur2PC_ServerFindScreen( [[intro\previouslyonblur.lua]] )
+	if context ~= nil then
+		return ServerStep( context, "closing Previously on Blur", function()
+			ContextTable[ context ].MessageUpdate( UIEnums.Message.MenuNext, 0, true )
+		end )
+	end
+
+	local main = Blur2PCServer.Screen( 0 )
+	if main == [[intro\startscreen.lua]] and GUI ~= nil and UIScreen.GetScreenActive( UIEnums.Context.Main ) == true then
+		if GUI.current_stage == GUI.STAGE_PRESS_START then
+			return ServerStep( 0, "start screen: press start", function()
+				ContextTable[ UIEnums.Context.Main ].MessageUpdate( UIEnums.Message.MenuNext, 0, true )
+			end )
+		elseif GUI.current_stage == GUI.STAGE_MODE_SELECT and UIGlobals.ProfileBootFinished == true then
+			if GUI.CurrentMode ~= GUI.Mode.Multiplayer then
+				return ServerStep( 0, "start screen: multiplayer", function()
+					ContextTable[ UIEnums.Context.Main ].MessageUpdate( UIEnums.Message.ButtonRight, 0, true )
+				end )
+			end
+			return ServerStep( 0, "start screen: enter multiplayer", function()
+				ContextTable[ UIEnums.Context.Main ].MessageUpdate( UIEnums.Message.MenuNext, 0, true )
+			end )
+		end
+		return
+	end
+
+	context = Blur2PC_ServerFindScreen( [[multiplayer\shared\mpmodeselect.lua]] )
+	if context ~= nil then
+		return ServerStep( context, "mode select: custom race (hosts the LAN game)", function()
+			UIButtons.SetSelection( GUI.menu_id, GUI.options.custom_race )
+			ContextTable[ context ].MessageUpdate( UIEnums.Message.MenuNext, 0, true )
+		end )
+	end
+
+	context = Blur2PC_ServerFindScreen( [[multiplayer\mplan.lua]] )
+	if context ~= nil then
+		return ServerStep( context, "LAN games: host a game", function()
+			ContextTable[ context ].MessageUpdate( UIEnums.Message.ButtonY, 0, true )
+		end )
+	end
+
+	if main == [[multiplayer\mpmain.lua]] and GUI ~= nil and GUI.active_selection == -1 and IsControllerLocked() == false then
+		local ftime, selection = UIButtons.GetSelection( GUI.carousel_id, 2 )
+		if selection ~= UIEnums.RwMpBranch.Lan then
+			return ServerStep( 0, "multiplayer: select LAN", function()
+				UIButtons.SetSelection( GUI.carousel_id, UIEnums.RwMpBranch.Lan )
+			end )
+		end
+		-- the LAN service connection opens the LAN screen once it is up
+		return ServerStep( 0, "multiplayer: open LAN", function()
+			ContextTable[ UIEnums.Context.Main ].MessageUpdate( UIEnums.Message.MenuNext, 0, true )
+		end, 3 )
+	end
+end

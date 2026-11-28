@@ -195,6 +195,8 @@
 #include <GameLogic/Layers/RaceLogicLayer.h>	// [Blur2PC] automation race state
 #include <GameLogic/Layers/RaceBookLayer.h>	// [Blur2PC]
 #include <system/debug/Blur2PCAutomation.h>	// [Blur2PC]
+#include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] server_mode, server.log
+#include <share.h>							// [Blur2PC] _SH_DENYNO (server.log)
 #include "Ui/UiLayer.h"
 
 #include "Game/AmaxCam/CameraSwitcher.h"
@@ -2456,6 +2458,217 @@ namespace
 			lua_pop( pState, 1 );
 		}
 	}
+
+	// [Blur2PC] Not retail: a dedicated LAN server (server_mode=1 in BlurRebuilt.ini) runs without anyone at the
+	// keyboard. Each UI frame the Lua function Blur2PC_ServerUpdate (MpGUIBank.lua) looks at the screens and may return
+	// a UI context and a function; the function then runs as that context's screen code does (the context selected,
+	// its GUI and SCUI bound), so it reaches the screen the way a button press does. The lobby side is in MpLobby.lua.
+	// Screen changes and the server's steps are written to server.log beside BlurRebuilt.ini.
+	void Blur2PCServerLogF( const char* fmt, ... )
+	{
+		static FILE* s_pFile = NULL;
+		static bool s_opened = false;
+		if ( !s_opened )
+		{
+			s_opened = true;
+			char path[MAX_PATH];
+			Blur2PCSettings::GetFolder( path, MAX_PATH );
+			strcat_s( path, MAX_PATH, "server.log" );
+			s_pFile = _fsopen( path, "w", _SH_DENYNO );	// readable while the server runs
+		}
+		if ( !s_pFile )
+			return;
+		SYSTEMTIME now;
+		GetLocalTime( &now );
+		fprintf( s_pFile, "%02d:%02d:%02d ", now.wHour, now.wMinute, now.wSecond );
+		va_list args;
+		va_start( args, fmt );
+		vfprintf( s_pFile, fmt, args );
+		va_end( args );
+		fputc( '\n', s_pFile );
+		fflush( s_pFile );
+	}
+
+	int Blur2PCServerLua_Log( lua_State* pState )
+	{
+		const char* text = lua_tostring( pState, 1 );
+		Blur2PCServerLogF( "%s", text ? text : "(nil)" );
+		return 0;
+	}
+
+	// Setting(key): the BlurRebuilt.ini value as a string, or nil
+	int Blur2PCServerLua_Setting( lua_State* pState )
+	{
+		const char* key = lua_tostring( pState, 1 );
+		char value[256];
+		if ( key && Blur2PCSettings::Read( key, value, sizeof( value ) ) )
+			lua_pushstring( pState, value );
+		else
+			lua_pushnil( pState );
+		return 1;
+	}
+
+	// WriteFile(name, text): writes a file beside BlurRebuilt.ini (server_tracks.txt)
+	int Blur2PCServerLua_WriteFile( lua_State* pState )
+	{
+		const char* name = lua_tostring( pState, 1 );
+		const char* text = lua_tostring( pState, 2 );
+		bool ok = false;
+		if ( name && text && !strchr( name, '\\' ) && !strchr( name, '/' ) )
+		{
+			char path[MAX_PATH];
+			Blur2PCSettings::GetFolder( path, MAX_PATH );
+			strcat_s( path, MAX_PATH, name );
+			FILE* pFile = NULL;
+			if ( fopen_s( &pFile, path, "w" ) == 0 && pFile )
+			{
+				fputs( text, pFile );
+				fclose( pFile );
+				ok = true;
+			}
+		}
+		lua_pushboolean( pState, ok );
+		return 1;
+	}
+
+	// Contexts(): the number of UI contexts; Screen(context): that context's screen, lower case ("" when none)
+	int Blur2PCServerLua_Contexts( lua_State* pState )
+	{
+		lua_pushnumber( pState, C_ScreenControlManager::Instance().Count() );
+		return 1;
+	}
+
+	int Blur2PCServerLua_Screen( lua_State* pState )
+	{
+		const S32 context = (S32)lua_tonumber( pState, 1 );
+		char name[128] = "";
+		if ( context >= 0 && context < C_ScreenControlManager::Instance().Count() )
+		{
+			if ( const char* screen = C_ScreenControlManager::Instance().Get( context ).GetCurrentScreen() )
+				strncpy_s( name, screen, _TRUNCATE );
+			_strlwr_s( name, sizeof( name ) );
+		}
+		lua_pushstring( pState, name );
+		return 1;
+	}
+
+	// Random(n): 1 to n, for the playlist's shuffle and random tracks
+	int Blur2PCServerLua_Random( lua_State* pState )
+	{
+		static bool s_seeded = false;
+		if ( !s_seeded )
+		{
+			srand( GetTickCount() );
+			s_seeded = true;
+		}
+		const S32 n = (S32)lua_tonumber( pState, 1 );
+		lua_pushnumber( pState, n > 0 ? 1 + ( rand() % n ) : 1 );
+		return 1;
+	}
+
+	// C_Blur2PCMainContextScope for any UI context
+	class C_Blur2PCServerContextScope
+	{
+	public:
+		C_Blur2PCServerContextScope( lua_State* pState, const S32 context ) : m_pState( pState ), m_Saved( C_ScreenControlManager::Instance().Context() ), m_Bound( false )
+		{
+			C_ScreenControlManager::Instance().Context( context );
+			lua_getglobal( m_pState, "SetContextTable" );
+			if ( lua_isfunction( m_pState, -1 ) )
+			{
+				lua_pushnumber( m_pState, context );
+				if ( lua_pcall( m_pState, 1, 1, 0 ) == 0 )
+					m_Bound = lua_istable( m_pState, -1 ) ? true : false;
+			}
+			lua_pop( m_pState, 1 );
+		}
+		~C_Blur2PCServerContextScope()
+		{
+			if ( m_Bound )
+			{
+				lua_getglobal( m_pState, "ResetContextTable" );
+				if ( lua_pcall( m_pState, 0, 0, 0 ) != 0 )
+					lua_pop( m_pState, 1 );
+			}
+			C_ScreenControlManager::Instance().Context( m_Saved );
+		}
+	private:
+		lua_State*	m_pState;
+		S32			m_Saved;
+		bool		m_Bound;
+	};
+
+	void Blur2PCServerLogError( const char* where, const char* error )
+	{
+		static char s_lastError[512];
+		if ( error && strcmp( error, s_lastError ) != 0 )
+		{
+			strncpy_s( s_lastError, error, _TRUNCATE );
+			Blur2PCServerLogF( "%s error: %s", where, error );
+		}
+	}
+
+	void Blur2PCServerUiUpdate( const F32 dt )
+	{
+		if ( !Blur2PCSettings::ServerMode() || !g_pUILua || !g_pUILua->GetState() )
+			return;
+		lua_State* pState = g_pUILua->GetState();
+		const int top = lua_gettop( pState );
+
+		lua_getglobal( pState, "Blur2PCServer" );
+		const bool registered = !lua_isnil( pState, -1 );
+		lua_pop( pState, 1 );
+		if ( !registered )
+		{
+			static const luaL_Reg s_lib[] = { { "RaceState", Blur2PCLua_RaceState }, { "Log", Blur2PCServerLua_Log }, { "Setting", Blur2PCServerLua_Setting }, { "WriteFile", Blur2PCServerLua_WriteFile },
+				{ "Contexts", Blur2PCServerLua_Contexts }, { "Screen", Blur2PCServerLua_Screen }, { "Random", Blur2PCServerLua_Random }, { NULL, NULL } };
+			luaL_register( pState, "Blur2PCServer", s_lib );
+			lua_pop( pState, 1 );
+			Blur2PCServerLogF( "server mode" );
+		}
+
+		// screen changes in every context
+		static char s_screens[8][128];
+		const S32 contexts = C_ScreenControlManager::Instance().Count() < 8 ? C_ScreenControlManager::Instance().Count() : 8;
+		for ( S32 i = 0; i < contexts; ++i )
+		{
+			const char* screen = C_ScreenControlManager::Instance().Get( i ).GetCurrentScreen();
+			if ( !screen ) screen = "";
+			if ( strcmp( screen, s_screens[i] ) != 0 )
+			{
+				strncpy_s( s_screens[i], screen, _TRUNCATE );
+				Blur2PCServerLogF( "screen %d: %s", i, screen[0] ? screen : "(none)" );
+			}
+		}
+
+		lua_getglobal( pState, "Blur2PC_ServerUpdate" );
+		if ( !lua_isfunction( pState, -1 ) )
+		{
+			lua_settop( pState, top );
+			return;
+		}
+		bool ok;
+		{
+			C_Blur2PCServerContextScope scope( pState, 0 );
+			lua_pushnumber( pState, dt );
+			ok = lua_pcall( pState, 1, 2, 0 ) == 0;
+		}
+		if ( !ok )
+		{
+			Blur2PCServerLogError( "Blur2PC_ServerUpdate", lua_tostring( pState, -1 ) );
+		}
+		else if ( lua_isnumber( pState, -2 ) && lua_isfunction( pState, -1 ) )
+		{
+			const S32 context = (S32)lua_tonumber( pState, -2 );
+			if ( context >= 0 && context < C_ScreenControlManager::Instance().Count() )
+			{
+				C_Blur2PCServerContextScope scope( pState, context );
+				if ( lua_pcall( pState, 0, 0, 0 ) != 0 )
+					Blur2PCServerLogError( "server step", lua_tostring( pState, -1 ) );
+			}
+		}
+		lua_settop( pState, top );
+	}
 }
 #endif
 
@@ -2582,6 +2795,7 @@ void C_UiManager::Process( const Maths::C_TimeS& time )
 
 #if defined(PLATFORM_PC)
 	Blur2PCAutomationUiUpdate();	// [Blur2PC]
+	Blur2PCServerUiUpdate( time.Get() );	// [Blur2PC] dedicated LAN server
 #endif
 
 	// update profile stuff
