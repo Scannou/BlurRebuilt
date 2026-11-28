@@ -111,6 +111,7 @@ static S32		s_RaceEventFinishOrder	= 0;	// vehicles that crossed the line so far
 static S32		s_RaceEventLaps[ 32 ];			// laps completed per vehicle this race
 static S32		s_RaceEventLastHitBy[ 32 ];		// per vehicle: who last hit it with a power-up (-1: nobody)
 static U64		s_RaceEventLastHitMs[ 32 ];
+static U64		s_RaceEventLastWreckMs[ 32 ];	// per vehicle: when its last wreck was written (0: none)
 static const S32 kRaceEventRecentHits	= 64;
 static U32		s_RaceEventRecentHits[ kRaceEventRecentHits ];	// power-up id and hit vehicle already written
 static S32		s_RaceEventRecentHitNext = 0;
@@ -419,6 +420,7 @@ void C_GameLoggingManager::RaceEventRaceStart()
 	s_RaceEventFinishOrder = 0;
 	memset( s_RaceEventLaps, 0, sizeof( s_RaceEventLaps ) );
 	memset( s_RaceEventLastHitBy, 0xff, sizeof( s_RaceEventLastHitBy ) );
+	memset( s_RaceEventLastWreckMs, 0, sizeof( s_RaceEventLastWreckMs ) );
 	memset( s_RaceEventRecentHits, 0xff, sizeof( s_RaceEventRecentHits ) );
 
 	if ( !RaceEventsActive() )
@@ -504,16 +506,22 @@ void C_GameLoggingManager::RaceEventPowerupHit( const U8 firingIndex, const U8 h
 	line.Write();
 }
 
-// A local car's wreck comes with the attacker the game credits ("by": "attacker") or none ("self"). A remote car's
-// wreck is only seen as its health running out, so it is credited to the last power-up hit within 5 seconds
-// ("last_hit") or to nobody ("unknown").
-void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote )
+// A wreck scored by a local car names the attacker the game credits ("by": "attacker"). A local car's own wreck
+// names the car that last hit it ("last_hit"), or nobody ("self"). A remote car's wreck seen only as its health running out is
+// credited to the last power-up hit within 5 seconds ("last_hit") or to nobody ("unknown"). Several of these can
+// report the same wreck, so a car's first report within 3 seconds is the one written.
+void C_GameLoggingManager::RaceEventWreck( const S32 attackerIndex, const U8 wreckedIndex, const bool remote, const bool lastHit )
 {
 	if ( !RaceEventsActive() || wreckedIndex >= 32 )
 		return;
 
+	const U64 now = GetTickCount64();
+	if ( s_RaceEventLastWreckMs[ wreckedIndex ] != 0 && now - s_RaceEventLastWreckMs[ wreckedIndex ] < 3000 )
+		return;
+	s_RaceEventLastWreckMs[ wreckedIndex ] = now;
+
 	S32 attacker = attackerIndex;
-	const char* pBy = ( attacker >= 0 ) ? "attacker" : "self";
+	const char* pBy = ( attacker < 0 ) ? "self" : lastHit ? "last_hit" : "attacker";
 	if ( remote )
 	{
 		const bool recent = s_RaceEventLastHitBy[ wreckedIndex ] >= 0 && GetTickCount64() - s_RaceEventLastHitMs[ wreckedIndex ] <= 5000;
