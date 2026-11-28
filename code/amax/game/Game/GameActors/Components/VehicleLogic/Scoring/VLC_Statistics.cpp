@@ -876,6 +876,14 @@ namespace Components
 					else
 						HandleMyDeath(false);
 
+				#if defined ( PLATFORM_PC )
+					// [Blur2PC] race events: a local car was wrecked; names the car that last hit it
+					{
+						const U8 hitBy = vehActor->mScoringInfo.mMostRecentVehicleIdxHitBy;
+						::Game::C_GameLoggingManager::Instance().RaceEventWreck((hitBy != INVALID_VEHICLE_IDX && hitBy != mVehicleIndex) ? hitBy : -1, mVehicleIndex, false, true);
+					}
+				#endif
+
 					return true;
 				}
 
@@ -890,6 +898,10 @@ namespace Components
 						if(pMsg->mBonusScoringEvent == E_BLUR_SCORE_MOVE_BONUS_WRECKED)
 						{
 							HandleSomeoneElsesDeath(pMsg->mAboutVehicleIndex);
+						#if defined ( PLATFORM_PC )
+							// [Blur2PC] race events: a local car scored a wreck (the wrecked car may be remote)
+							::Game::C_GameLoggingManager::Instance().RaceEventWreck(mVehicleIndex, pMsg->mAboutVehicleIndex, false);
+						#endif
 
 							const C_VehicleLogicMsg_WreckedMsg wreckedMsg(mVehicleIndex, pMsg->mAboutVehicleIndex, E_PICKUP_TYPE_NONE);
 							if(GetActor()->QueryInterface(Components::E_IF_VehicleComponent_Challenges))
