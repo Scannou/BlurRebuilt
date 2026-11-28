@@ -5,6 +5,7 @@
 #include <system/serialise.h>
 #include <system/serialise/C_File.h>
 #include <system/serialise/FsPerfLogger.h>
+#include <system/debug/Blur2PCCrashReport.h>	// [Blur2PC] last files opened, for crash reports
 #include <system/serialise/FileSystemGlobals.h>
 #include <core/utility/coredebug.h>
 #ifdef PLATFORM_PS3
@@ -91,6 +92,8 @@ bool C_File::Open(const C_FilePath& fileName,
 						FILE_ATTRIBUTE_NORMAL, // file attributes
 						NULL // handle to template file
 						);
+	// [Blur2PC] not retail: the crash report lists the last files opened, failed ones with their error
+	Blur2PCCrashReport::NoteFile( fileName.Chars(), m_f != INVALID_HANDLE_VALUE ? 0 : GetLastError() );
 						
 	if (m_f == INVALID_HANDLE_VALUE)	// [Blur2PC][x64] was (U32)m_f == 0xffffffff
 	{
