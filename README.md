@@ -90,6 +90,7 @@ Blur Rebuilt's own settings are in `%APPDATA%\Bizarre Creations\Blur\BlurRebuilt
 | `speed_units=kmh` | Show speeds in km/h instead of mph (also in Options → Speed units) |
 | `race_events_file=off` | Stop writing the race events file, or give a full file path to write it somewhere else |
 | `race_events_udp=lights.local:5555` | Also send every race event as a UDP packet to that host and port as it happens. The host can be a name, an IP address or a broadcast address such as `192.168.1.255` |
+| `audio_buffer_ms=60` | Make the sound buffer longer if music or sounds stutter (the default is about 30 ms; longer means sounds play slightly later) |
 
 The environment variables `BLUR_RACE_EVENTS` and `BLUR_RACE_EVENTS_UDP` still work when the matching setting isn't in the file.
 

@@ -10,6 +10,7 @@
 #include <system/misc/StringUtil.h>
 
 #include <shlobj.h>		// [Blur2PC] T250: SHGetFolderPathA (save location)
+#include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] BlurRebuilt.ini
 
 #ifdef CFG_ALLOW_OPTIMIZE_OFF
 #pragma optimize( "", off )
@@ -40,8 +41,7 @@ static void GetUserDataRoot( char* pRoot, const size_t uSize )
 }
 
 // [Blur2PC] Not retail: BlurRebuilt keeps its own files in the same folder as the profile save (retail ignores
-// them). BlurRebuilt.ini holds its settings as "key=value" lines; keys are not case sensitive, spaces around keys
-// and values are ignored, and lines starting with ';' or '#' are comments.
+// them). BlurRebuilt.ini holds its settings as "key=value" lines, read with system/misc/BlurRebuiltSettings.h.
 static const U32 kBlurRebuiltSettingsMaxLines	= 64;
 static const U32 kBlurRebuiltSettingsLineSize	= 512;
 
@@ -49,33 +49,6 @@ void GetBlurRebuiltFilePath( const char* pFileName, char* pPath, const size_t uS
 {
 	GetUserDataRoot( pPath, uSize );
 	strcat_s( pPath, uSize, pFileName );
-}
-
-// Splits a settings line into its trimmed key and value; false for comments, blank lines and lines without '='.
-static bool ParseBlurRebuiltSetting( char* pLine, char*& pKey, char*& pValue )
-{
-	pLine[ strcspn( pLine, "\r\n" ) ] = '\0';
-
-	pKey = pLine + strspn( pLine, " \t" );
-	if ( *pKey == ';' || *pKey == '#' )
-		return false;
-
-	char* pEquals = strchr( pKey, '=' );
-	if ( !pEquals || pEquals == pKey )
-		return false;
-
-	char* pKeyEnd = pEquals;
-	while ( pKeyEnd > pKey && ( pKeyEnd[ -1 ] == ' ' || pKeyEnd[ -1 ] == '\t' ) )
-		pKeyEnd--;
-	*pKeyEnd = '\0';
-
-	pValue = pEquals + 1;
-	pValue += strspn( pValue, " \t" );
-	size_t length = strlen( pValue );
-	while ( length > 0 && ( pValue[ length - 1 ] == ' ' || pValue[ length - 1 ] == '\t' ) )
-		pValue[ --length ] = '\0';
-
-	return true;
 }
 
 // Written when there is no BlurRebuilt.ini yet, so the settings can be found; every line is a comment.
@@ -97,7 +70,10 @@ static void WriteBlurRebuiltSettingsTemplate( const char* pPath )
 			";race_events_file=off\n"
 			";\n"
 			"; Also send every race event as a UDP packet to host:port (a name, an address or a broadcast address)\n"
-			";race_events_udp=lights.local:5555\n", pFile );
+			";race_events_udp=lights.local:5555\n"
+			";\n"
+			"; Sound buffer in milliseconds: larger stops stuttering music, but sounds play a little later (default about 30)\n"
+			";audio_buffer_ms=60\n", pFile );
 	fclose( pFile );
 }
 
@@ -106,28 +82,12 @@ bool GetBlurRebuiltSetting( const char* pKey, char* pValue, const size_t uSize )
 	char path[ MAX_PATH ];
 	GetBlurRebuiltFilePath( "BlurRebuilt.ini", path, MAX_PATH );
 
-	FILE* pFile = NULL;
-	if ( fopen_s( &pFile, path, "r" ) != 0 || !pFile )
+	if ( GetFileAttributesA( path ) == INVALID_FILE_ATTRIBUTES )
 	{
-		if ( GetFileAttributesA( path ) == INVALID_FILE_ATTRIBUTES )
-			WriteBlurRebuiltSettingsTemplate( path );
+		WriteBlurRebuiltSettingsTemplate( path );
 		return false;
 	}
-
-	bool found = false;
-	char line[ kBlurRebuiltSettingsLineSize ];
-	while ( !found && fgets( line, sizeof( line ), pFile ) )
-	{
-		char* pLineKey;
-		char* pLineValue;
-		if ( ParseBlurRebuiltSetting( line, pLineKey, pLineValue ) && _stricmp( pLineKey, pKey ) == 0 )
-		{
-			strncpy_s( pValue, uSize, pLineValue, _TRUNCATE );
-			found = true;
-		}
-	}
-	fclose( pFile );
-	return found;
+	return Blur2PCSettings::Read( pKey, pValue, uSize );
 }
 
 // Replaces the key's line (or adds it), keeping every other line, comment and their order.
@@ -152,7 +112,7 @@ void SetBlurRebuiltSetting( const char* pKey, const char* pValue )
 			strcpy_s( parsed, pLine );
 			char* pLineKey;
 			char* pLineValue;
-			if ( ParseBlurRebuiltSetting( parsed, pLineKey, pLineValue ) && _stricmp( pLineKey, pKey ) == 0 )
+			if ( Blur2PCSettings::ParseLine( parsed, pLineKey, pLineValue ) && _stricmp( pLineKey, pKey ) == 0 )
 			{
 				if ( replaced )
 					continue;	// drop repeats of the key
