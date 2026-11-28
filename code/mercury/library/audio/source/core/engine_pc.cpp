@@ -80,6 +80,9 @@ static Debug::Int	g_PCEngineAudioSleep("Audio.PC.Engine.AudioSleep", 5, Debug::R
 // 0x01028d18: the first write re-checks the write position against the buffer
 static bool g_bPCEngineResyncWritePos = true;
 
+// [Blur2PC] Not retail: which buffer length the output uses (see CreateBuffer); the game starts in the menus
+static bool s_bRaceBuffering = false;
+
 // 0x01028cb8: DirectSound speaker configuration -> output channels
 static const U32 s_aSpeakerConfigChannels[12][2] =
 {
@@ -302,6 +305,23 @@ void Audio::Core::Engine::SetOutputSampleRate(U32 uSampleRate)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+//	[Blur2PC] SetRaceBuffering, not retail
+////////////////////////////////////////////////////////////////////////////////
+void Audio::Core::Engine::SetRaceBuffering(bool bInRace)
+{
+	if (bInRace == s_bRaceBuffering)
+		return;
+	s_bRaceBuffering = bInRace;
+
+	// not started yet: CreateBuffer picks the length when it does
+	if (!m_pDS)
+		return;
+
+	if (Shutdown())
+		StartDevice(m_uDeviceIndex);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 //	ChangeFormat (0x00547870)
 ////////////////////////////////////////////////////////////////////////////////
 void Audio::Core::Engine::ChangeFormat(void*)
@@ -380,12 +400,16 @@ HRESULT Audio::Core::Engine::CreateBuffer(IDirectSound8* pDS, IDirectSoundBuffer
 	if (!g_PCEngineNumberOfBuffersOverride)
 		g_PCEngineNumberOfBuffers = (m_uSampleRate <= 24000) ? 3 : (m_uSampleRate <= 36000) ? 4 : 5;
 
-	// [Blur2PC] Not retail: audio_buffer_ms in BlurRebuilt.ini sets the buffer length instead, for systems where
-	// the small default ring stutters (heard in the menus, upstream issue #8). Rounded up to whole blocks.
-	char bufferSetting[16];
-	if (Blur2PCSettings::Read("audio_buffer_ms", bufferSetting, sizeof(bufferSetting)))
+	// [Blur2PC] Not retail: the small default ring leaves gaps in the menu music on some systems (upstream issue
+	// #8), where a little more latency does not matter. Menus use audio_menu_buffer_ms from BlurRebuilt.ini (default
+	// 60 ms, 0 keeps the default ring); races keep the default ring, or audio_buffer_ms when set. The game switches
+	// between them with Audio::SetOutputForRace. Rounded up to whole blocks.
+	if (!g_PCEngineNumberOfBuffersOverride)
 	{
-		const int ms = atoi(bufferSetting);
+		int ms = s_bRaceBuffering ? 0 : 60;
+		char bufferSetting[16];
+		if (Blur2PCSettings::Read(s_bRaceBuffering ? "audio_buffer_ms" : "audio_menu_buffer_ms", bufferSetting, sizeof(bufferSetting)))
+			ms = atoi(bufferSetting);
 		if (ms > 0 && ms <= 1000)
 		{
 			const int blocks = (int)(((U32)ms * m_uSampleRate + 256 * 1000 - 1) / (256 * 1000));
@@ -800,6 +824,12 @@ namespace Audio
 	void ShutdownOutputEngine()
 	{
 		Audio::Core::Engine::Instance().Shutdown();
+	}
+
+	// [Blur2PC] Not retail: races use the low-latency ring, menus a longer one (Engine::SetRaceBuffering)
+	void SetOutputForRace(bool bInRace)
+	{
+		Audio::Core::Engine::Instance().SetRaceBuffering(bInRace);
 	}
 }
 
