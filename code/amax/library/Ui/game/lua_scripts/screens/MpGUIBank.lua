@@ -576,33 +576,12 @@ function Blur2PC_ServerNumber( key, default )
 	return value
 end
 
--- server_skip_tracks: words matched against track and city names, left out of random picks (default "dumbo": the NY
--- Dumbo tracks do not load on some copies of the game; "server_skip_tracks=none" leaves nothing out)
-function Blur2PC_ServerSkipWords()
-	local words = {}
-	local line = string.lower( Blur2PC_ServerSetting( "server_skip_tracks" ) or "dumbo" )
-	for word in string.gmatch( line, "[^%s,]+" ) do
-		if word ~= "none" then
-			table.insert( words, word )
-		end
-	end
-	return words
-end
-
--- every track of a mode: { city, route, tag, point_to_point, skip }
+-- every track of a mode: { city, route, tag, point_to_point }
 function Blur2PC_ServerTracks( mode )
-	local skip_words = Blur2PC_ServerSkipWords()
 	local tracks = {}
 	for _, city in ipairs( Multiplayer.GetCustomRaceCities( mode ) ) do
 		for _, route in ipairs( Multiplayer.GetCustomRaceRoutes( city.id, mode ) ) do
-			local track = { city = city.id, route = route.id, tag = string.lower( route.debug_tag ), point_to_point = route.point_to_point, skip = false }
-			local names = track.tag .. " " .. string.lower( city.debug_tag or "" )
-			for _, word in ipairs( skip_words ) do
-				if string.find( names, word, 1, true ) ~= nil then
-					track.skip = true
-				end
-			end
-			table.insert( tracks, track )
+			table.insert( tracks, { city = city.id, route = route.id, tag = string.lower( route.debug_tag ), point_to_point = route.point_to_point } )
 		end
 	end
 	return tracks
@@ -615,7 +594,7 @@ function Blur2PC_ServerWriteTracks()
 	for _, mode in ipairs( { { "race", UIEnums.MpRaceType.Racing }, { "motormash", UIEnums.MpRaceType.Destruction } } ) do
 		text = text .. "\n" .. mode[1] .. ":\n"
 		for _, track in ipairs( Blur2PC_ServerTracks( mode[2] ) ) do
-			text = text .. "  " .. track.tag .. Select( track.point_to_point == true, "   (one lap only)", "" ) .. Select( track.skip == true, "   (left out of random picks: server_skip_tracks)", "" ) .. "\n"
+			text = text .. "  " .. track.tag .. Select( track.point_to_point == true, "   (one lap only)", "" ) .. "\n"
 		end
 	end
 	Blur2PCServer.WriteFile( "server_tracks.txt", text )
@@ -624,7 +603,7 @@ function Blur2PC_ServerWriteTracks()
 	for _, mode in ipairs( { { "race", UIEnums.MpRaceType.Racing }, { "motormash", UIEnums.MpRaceType.Destruction } } ) do
 		local names = {}
 		for _, track in ipairs( Blur2PC_ServerTracks( mode[2] ) ) do
-			table.insert( names, Blur2PC_Json( track.tag .. Select( track.point_to_point == true, " (one lap)", "" ) .. Select( track.skip == true, " (left out of random)", "" ) ) )
+			table.insert( names, Blur2PC_Json( track.tag .. Select( track.point_to_point == true, " (one lap)", "" ) ) )
 		end
 		table.insert( json, Blur2PC_Json( mode[1] ) .. ":[" .. table.concat( names, "," ) .. "]" )
 	end
@@ -717,7 +696,7 @@ function Blur2PC_ServerCommands()
 		elseif name == "settings" then
 			for key, value in string.gmatch( arg, "([%w_]+)=([^\r\n]*)" ) do
 				local ini_key = "server_" .. key
-				if key == "countdown" or key == "min_players" or key == "order" or key == "skip_tracks" then
+				if key == "countdown" or key == "min_players" or key == "order" then
 					S.overrides[ ini_key ] = value
 					Blur2PCServer.SaveSetting( ini_key, value )
 				end
@@ -753,7 +732,6 @@ function Blur2PC_ServerPublish( dt )
 		',"min_players":' .. math.max( 1, Blur2PC_ServerNumber( "server_min_players", 1 ) ) ..
 		',"countdown":' .. math.max( 5, Blur2PC_ServerNumber( "server_countdown", 60 ) ) ..
 		',"order":' .. Blur2PC_Json( string.lower( Blur2PC_ServerSetting( "server_order" ) or "inorder" ) ) ..
-		',"skip_tracks":' .. Blur2PC_Json( Blur2PC_ServerSetting( "server_skip_tracks" ) or "dumbo" ) ..
 		',"current":' .. Select( S.current ~= nil, Blur2PC_Json( S.current or "" ), "null" ) ..
 		',"playlist":[' .. table.concat( playlist, "," ) .. "]" ..
 		',"tracks":' .. ( S.tracks_json or "{}" ) .. "}"
@@ -800,17 +778,7 @@ function Blur2PC_ServerApplyNextRace()
 		end
 	end
 	if pick == nil then
-		local candidates = {}
-		for _, track in ipairs( tracks ) do
-			if track.skip == false then
-				table.insert( candidates, track )
-			end
-		end
-		if #candidates == 0 then
-			Blur2PC_ServerLog( "server_skip_tracks leaves out every track, lobby race kept" )
-			return
-		end
-		pick = candidates[ Blur2PCServer.Random( #candidates ) ]
+		pick = tracks[ Blur2PCServer.Random( #tracks ) ]
 	end
 
 	local limits = Multiplayer.GetCustomRaceLimits()
