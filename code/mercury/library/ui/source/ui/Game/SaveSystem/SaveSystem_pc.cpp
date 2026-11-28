@@ -89,7 +89,9 @@ static void WriteBlurRebuiltSettingsTemplate( const char* pPath )
 			";server_race1=race random 2 A\n"
 			";server_race2=motormash random 3 any\n"
 			"; Order of the races: inorder or shuffle (default inorder)\n"
-			";server_order=shuffle\n", pFile );
+			";server_order=shuffle\n"
+			"; Tracks random picks leave out, by part of their name (default dumbo; none leaves nothing out)\n"
+			";server_skip_tracks=dumbo\n", pFile );
 	fclose( pFile );
 }
 
