@@ -3,7 +3,6 @@
 #include <core/threads/atomic.h>
 #include <system/serialise/FsPerfLogger.h>
 #include <system/serialise/FileSystemGlobals.h>
-#include <system/debug/Blur2PCCrashReport.h>	// [Blur2PC] last files opened, for crash reports
 
 extern Debug::Logger &g_SystemIoLog;
 bool IoDebugShouldReadFail();
@@ -156,12 +155,9 @@ void IoDevice::Process()
 					BIZ_ASSERT(fi->state == IoFileImpl::kState_Opening);
 					BIZ_ASSERT(fi->handle == INVALID_HANDLE_VALUE);
 
-					fi->handle = CreateFile(
+					if ((fi->handle = CreateFile(
 							fi->filename.Chars(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING, 0
-						);
-					// [Blur2PC] not retail: the crash report lists the last files opened, failed ones with their error
-					Blur2PCCrashReport::NoteFile( fi->filename.Chars(), fi->handle != INVALID_HANDLE_VALUE ? 0 : GetLastError() );
-					if (fi->handle != INVALID_HANDLE_VALUE)
+						)) != INVALID_HANDLE_VALUE)
 					{
 						fi->state		= IoFileImpl::kState_Open;
 

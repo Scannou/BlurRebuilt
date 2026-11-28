@@ -90,8 +90,6 @@ static void WriteBlurRebuiltSettingsTemplate( const char* pPath )
 			";server_race2=motormash random 3 any\n"
 			"; Order of the races: inorder or shuffle (default inorder)\n"
 			";server_order=shuffle\n"
-			"; Tracks random picks leave out, by part of their name (default dumbo; none leaves nothing out)\n"
-			";server_skip_tracks=dumbo\n"
 			"; The server's web page, at http://<this PC>:8080 on the LAN (default 8080; 0 turns it off)\n"
 			";server_web_port=8080\n"
 			"; Password for the web page's buttons (default: none, anyone on the LAN can use them)\n"
