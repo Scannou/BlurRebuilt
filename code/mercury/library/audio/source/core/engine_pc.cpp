@@ -7,6 +7,7 @@
 #include "../SystemHeaders.h"
 
 #include <mmsystem.h>	// [Blur2PC] T255: timeBeginPeriod
+#include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] audio_buffer_ms
 
 #ifdef AUDIO_OPTIMIZE_OFF
 #pragma optimize ("", off) // AUDIO_OPTIMIZE_OFF
@@ -378,6 +379,19 @@ HRESULT Audio::Core::Engine::CreateBuffer(IDirectSound8* pDS, IDirectSoundBuffer
 	// 4 at 48 kHz crackled. Rates between take the next quality's count.
 	if (!g_PCEngineNumberOfBuffersOverride)
 		g_PCEngineNumberOfBuffers = (m_uSampleRate <= 24000) ? 3 : (m_uSampleRate <= 36000) ? 4 : 5;
+
+	// [Blur2PC] Not retail: audio_buffer_ms in BlurRebuilt.ini sets the buffer length instead, for systems where
+	// the small default ring stutters (heard in the menus, upstream issue #8). Rounded up to whole blocks.
+	char bufferSetting[16];
+	if (Blur2PCSettings::Read("audio_buffer_ms", bufferSetting, sizeof(bufferSetting)))
+	{
+		const int ms = atoi(bufferSetting);
+		if (ms > 0 && ms <= 1000)
+		{
+			const int blocks = (int)(((U32)ms * m_uSampleRate + 256 * 1000 - 1) / (256 * 1000));
+			g_PCEngineNumberOfBuffers = (blocks < 2) ? 2 : (blocks > 256) ? 256 : blocks;
+		}
+	}
 
 	memset(&m_BufferDesc, 0, sizeof(m_BufferDesc));
 	m_BufferDesc.dwSize = sizeof(DSBUFFERDESC);
