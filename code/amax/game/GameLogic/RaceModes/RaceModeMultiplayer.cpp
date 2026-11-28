@@ -46,7 +46,20 @@
 
 #include <Network\Session.h>
 #if defined ( PLATFORM_PC )
-#include <system/misc/BlurRebuiltSettings.h>	// [Blur2PC] server_mode
+#include <ui/Game/SaveSystem/SaveSystem.h>	// [Blur2PC] server_mode (BlurRebuilt.ini)
+
+// [Blur2PC] Not retail: server_mode=1, a dedicated LAN server; read once per run. Through the UI's settings reader:
+// system/misc/BlurRebuiltSettings.h brings in shlobj.h, whose CY clashes with this library's unity build.
+static bool RaceModeMultiplayer_ServerMode()
+{
+	static int s_mode = -1;
+	if ( s_mode < 0 )
+	{
+		char value[16];
+		s_mode = ( UI::GetBlurRebuiltSetting( "server_mode", value, sizeof( value ) ) && atoi( value ) != 0 ) ? 1 : 0;
+	}
+	return s_mode == 1;
+}
 #endif
 #include <Network\ScoreboardWriter.h>
 #include <Network\PlayerSkillWriter.h>
@@ -160,7 +173,7 @@ void C_RaceModeMultiplayer::Update()
 	// start it takes its player car out the way an eliminated player's car leaves: VehicleFinished(ELIMINATED) sends
 	// the car's results, every PC removes the car (EliminateVehicle, then the logic actor's PreRemoveFromRace) and
 	// the server's UI moves on to spectating. Its AI cars race on.
-	if ( Blur2PCSettings::ServerMode() && !mRaceFinished && GetRaceLogicLayer() &&
+	if ( RaceModeMultiplayer_ServerMode() && !mRaceFinished && GetRaceLogicLayer() &&
 		GetRaceLogicLayer()->GetRaceState() == Game::E_RaceState_Racing )
 	{
 		const Game::C_LevelState* pServerLevelState = GetLevelState();
